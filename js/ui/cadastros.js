@@ -38,6 +38,12 @@ export function telaMais({ dados }) {
   return `
     ${dados.exemplo ? `<p class="alerta aviso">${icone('info')}<span>Você está vendo <strong>dados de exemplo</strong>. Importe seu JSON em <em>Backup</em>, no fim desta tela.</span></p>` : ''}
 
+    <button class="cartao atalho" data-ir="simular">
+      ${avatarIcone('fluxo', '#a855f7')}
+      <span class="extrato-texto"><strong>Simulador</strong><small>E se eu comprar, cortar, parcelar ou juntar para uma meta?</small></span>
+      ${icone('direita')}
+    </button>
+
     <section class="cartao">
       ${cabecalho('Conta', botaoAcao('atualizar-saldo', 'Atualizar', 'atualizar'))}
       <div class="linha-valores">
@@ -220,6 +226,7 @@ export function abrirMenuRapido(ctx) {
     ['guardar', 'cofre', '#22c55e', 'Guardar dinheiro', 'Colocar na caixinha ou investimento'],
     ['entrada', 'setaCima', '#14b8a6', 'Nova entrada', 'Salário, venda, ajuda...'],
     ['saida', 'setaBaixo', '#f43f5e', 'Nova saída fixa', 'Aluguel, contas, parcelas...'],
+    ['simular', 'fluxo', '#a855f7', 'Simular cenário', 'E se eu comprar, cortar, parcelar...?'],
     ['saldo', 'atualizar', '#6ea8ff', 'Atualizar saldo da conta', 'Conferiu no app do banco? Ajuste aqui.'],
   ];
   abrirModal({
@@ -238,6 +245,7 @@ export function abrirMenuRapido(ctx) {
           entrada: () => modalEvento(ctx, null, 'entrada'),
           saida: () => modalEvento(ctx, null, 'saida'),
           saldo: () => modalAtualizarSaldo(ctx),
+          simular: () => ctx.irPara('simular'),
         };
         acoes[b.dataset.rapido]();
       });

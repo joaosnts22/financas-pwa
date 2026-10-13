@@ -427,3 +427,56 @@ label.check.mini { font-size: 0.8rem; gap: 4px; }
   .alerta.ok { color: #0f7a43; }
   dialog::backdrop { background: rgb(20 23 38 / 0.45); }
 }
+
+/* =========================================================
+   Simulador
+   ========================================================= */
+.atalho {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  color: var(--texto); font: inherit; text-align: left; cursor: pointer;
+}
+.atalho > .ico { color: var(--texto-2); }
+.abas-sim {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+  background: var(--superficie); border: 1px solid var(--borda); border-radius: 16px; padding: 5px;
+}
+.abas-sim button {
+  display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 2px;
+  background: none; border: 0; border-radius: 12px; color: var(--texto-2);
+  font: inherit; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+}
+.abas-sim button .ico { width: 20px; height: 20px; }
+.abas-sim button[aria-selected="true"] { background: var(--primaria); color: #fff; }
+.form-sim { display: flex; flex-direction: column; gap: 14px; }
+.form-sim .cartao-cabecalho { margin-bottom: 0; }
+.resultado-sim { display: flex; flex-direction: column; gap: 14px; }
+.resultado-sim:empty { display: none; }
+.centro { text-align: center; }
+.rotulo-grande { margin: 0; color: var(--texto-2); font-size: 0.85rem; }
+.txt-perigo { color: var(--saida); font-size: 0.75rem; }
+.txt-ok { color: var(--entrada) !important; font-weight: 700; }
+.bloco small + small, .bloco .valor + small { display: block; }
+
+.antes-depois { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
+.antes-depois s { color: var(--texto-2); font-size: 0.78rem; }
+
+.lista-cortes { list-style: none; margin: 0; padding: 0; }
+.lista-cortes li { display: grid; grid-template-columns: 1fr 110px auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--borda); }
+.lista-cortes li:last-child { border-bottom: 0; }
+.lista-cortes input { min-height: 44px; padding: 8px 10px; min-width: 0; }
+
+.opcoes-parcela { display: flex; flex-direction: column; gap: 10px; }
+
+/* Tabelas responsivas feitas com grid (leem bem no celular) */
+.tabela-meses, .tabela-parcelas { display: flex; flex-direction: column; font-size: 0.88rem; }
+.tm-cab, .tm-linha { display: grid; grid-template-columns: 62px 1fr 1fr; gap: 8px; align-items: start; }
+.tp-cab, .tp-linha { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 14px; align-items: start; }
+.tm-cab, .tp-cab { color: var(--texto-2); font-size: 0.72rem; font-weight: 600; padding-bottom: 6px; border-bottom: 1px solid var(--borda); }
+.tm-linha, .tp-linha { padding: 9px 0; border-bottom: 1px solid var(--borda); }
+.tm-linha:last-child, .tp-linha:last-child { border-bottom: 0; }
+.tm-linha > span, .tp-linha > span { display: flex; flex-direction: column; min-width: 0; }
+.tm-linha small, .tp-linha small { color: var(--texto-2); font-size: 0.72rem; }
+.tm-mes { font-weight: 700; text-transform: capitalize; }
+.tm-cab span:not(:first-child), .tm-linha span:not(:first-child),
+.tp-cab span:not(:first-child), .tp-linha span:not(:first-child) { text-align: right; align-items: flex-end; }
+.destaque-ok { background: rgb(47 208 127 / 0.06); border-radius: 10px; padding-left: 6px; padding-right: 6px; }
