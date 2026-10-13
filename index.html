@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Minhas Finanças</title>
+  <meta name="description" content="Controle e projeção financeira pessoal. Dados salvos só no aparelho.">
+
+  <!-- PWA: manifest e cor da barra do navegador (clara/escura) -->
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#0f766e" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+
+  <!-- iPhone (Safari): ícone e modo tela cheia ao adicionar à tela inicial -->
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Finanças">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+  <link rel="icon" href="./icons/icon-192.png" type="image/png">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <header class="topo">
+    <h1 id="titulo">Minhas Finanças</h1>
+  </header>
+
+  <main id="conteudo" aria-live="polite">
+    <noscript>Este app precisa de JavaScript ativado.</noscript>
+  </main>
+
+  <!-- Navegação inferior (mobile-first) -->
+  <nav id="nav" class="nav-inferior" hidden>
+    <button data-aba="painel"><span aria-hidden="true">🏠</span>Painel</button>
+    <button data-aba="fluxo"><span aria-hidden="true">📈</span>Fluxo</button>
+    <button data-aba="dados"><span aria-hidden="true">✏️</span>Dados</button>
+  </nav>
+
+  <dialog id="modal"></dialog>
+  <div id="toast" role="status"></div>
+
+  <!-- type="module" permite usar import/export entre arquivos, sem build -->
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
