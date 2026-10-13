@@ -9,7 +9,7 @@
 import { CATEGORIAS_SAIDA } from '../calculos.js';
 import { centavosParaTexto, paraCentavos, paraNumero, numeroParaTexto } from '../dinheiro.js';
 import { formatarData, nomeMes, hojeISO } from '../datas.js';
-import { novoId, exportarJSON, lerArquivoJSON, dadosExemplo, dadosVazios } from '../dados.js';
+import { novoId, exportarJSON, lerArquivoJSON, dadosExemplo, dadosVazios, desfazerAjuste } from '../dados.js';
 import {
   esc, abrirModal, avisar, confirmar, fecharModal, valorNeutro, valorHTML, cabecalho, botaoAcao,
   campoValor, lerValor,
@@ -37,6 +37,12 @@ export function telaMais({ dados }) {
 
   return `
     ${dados.exemplo ? `<p class="alerta aviso">${icone('info')}<span>Você está vendo <strong>dados de exemplo</strong>. Importe seu JSON em <em>Backup</em>, no fim desta tela.</span></p>` : ''}
+
+    <button class="cartao atalho" data-ir="dividas">
+      ${avatarIcone('cartao', '#f43f5e')}
+      <span class="extrato-texto"><strong>Dívidas</strong><small>Quanto falta, quando termina e "Paguei" das faturas</small></span>
+      ${icone('direita')}
+    </button>
 
     <button class="cartao atalho" data-ir="simular">
       ${avatarIcone('fluxo', '#a855f7')}
@@ -274,11 +280,16 @@ export function modalAtualizarSaldo(ctx) {
   });
 }
 
-export function modalEvento(ctx, evento, tipoNovo) {
+/**
+ * Formulário de entrada/saída.
+ * @param inicial valores iniciais opcionais para um item novo (ex.: { categoria: 'Parcela' })
+ */
+export function modalEvento(ctx, evento, tipoNovo, inicial = {}) {
   const tipo = evento ? evento.tipo : tipoNovo;
   const ev = evento || {
     nome: '', tipo, categoria: tipo === 'entrada' ? '' : 'Despesa fixa', valor: 0,
     recorrencia: tipo === 'entrada' ? 'unica' : 'mensal', data: hojeISO(), dia: 5, inicio: hojeISO().slice(0, 7), fim: '', ativo: true,
+    ...inicial,
   };
   const ehEntrada = tipo === 'entrada';
   // Entradas: categoria livre (com sugestões do que você já usou). Saídas: lista.
@@ -333,6 +344,7 @@ export function modalEvento(ctx, evento, tipoNovo) {
       if (recorrencia === 'unica' && !f.elements.data.value) throw new Error('Informe a data.');
       if (recorrencia !== 'unica' && !/^\d{4}-\d{2}$/.test(inicio)) throw new Error('Informe o mês inicial (AAAA-MM).');
       if (fim && !/^\d{4}-\d{2}$/.test(fim)) throw new Error('Mês final inválido (use AAAA-MM).');
+      if (fim && fim < inicio) throw new Error('O mês final precisa ser depois do mês inicial.');
       const novo = {
         id: ev.id || novoId(), nome, tipo, categoria, valor, recorrencia,
         data: f.elements.data.value || ev.data,
@@ -358,7 +370,7 @@ function linhaFatura(f = { id: novoId(), vencimento: '', valor: 0, paga: false }
     </div>`;
 }
 
-function modalCartao(ctx, cartao) {
+export function modalCartao(ctx, cartao) {
   const c = cartao || { id: novoId(), nome: '', faturas: [], parcelamento: null };
   const p = c.parcelamento || { parcelas: 0, valor: 0, pagas: 0, jurosTotais: 0 };
   abrirModal({
@@ -366,6 +378,7 @@ function modalCartao(ctx, cartao) {
     corpo: `
       <label>Nome do cartão<input name="nome" value="${esc(c.nome)}" placeholder="Ex.: Nubank"></label>
       <h3>Faturas (data em que você vai pagar)</h3>
+      <p class="dica">Para registrar um pagamento, prefira o botão "Paguei" na tela Dívidas: ele também atualiza o saldo da conta.</p>
       <div class="faturas">${c.faturas.map(linhaFatura).join('')}</div>
       <button type="button" class="btn btn-pequeno" data-add-fatura>+ Fatura</button>
       <h3>Parcelamento de fatura (informativo)</h3>
@@ -398,7 +411,17 @@ function modalCartao(ctx, cartao) {
         const valor = paraCentavos(linha.querySelector('[name=valorFat]').value);
         if (!venc) throw new Error('Toda fatura precisa de data.');
         if (valor === null || valor < 0) throw new Error(`Valor inválido na fatura de ${formatarData(venc)}.`);
-        return { id: linha.dataset.id, vencimento: venc, valor, paga: linha.querySelector('[name=paga]').checked };
+        const paga = linha.querySelector('[name=paga]').checked;
+        // Se continua paga, mantém a data do pagamento registrada pelo botão "Paguei"
+        const antiga = c.faturas.find((x) => x.id === linha.dataset.id);
+        const manter = paga && antiga?.paga;
+        return {
+          id: linha.dataset.id, vencimento: venc, valor, paga,
+          pagaEm: manter ? antiga.pagaEm : null,
+          criadoEm: manter ? antiga.criadoEm : 0,
+          abateuSaldo: manter ? antiga.abateuSaldo : false,
+          contouParcela: manter ? antiga.contouParcela : false,
+        };
       }).sort((a, b) => a.vencimento.localeCompare(b.vencimento));
       const parcelas = parseInt(f.elements.parcelas.value, 10) || 0;
       const novo = {
@@ -411,6 +434,14 @@ function modalCartao(ctx, cartao) {
         } : null,
       };
       ctx.alterar((d) => {
+        // Fatura que estava paga pelo "Paguei" e foi desmarcada (ou removida): devolve o valor ao saldo
+        for (const antiga of c.faturas) {
+          const agora = faturas.find((x) => x.id === antiga.id);
+          if (antiga.paga && antiga.pagaEm && !agora?.paga) {
+            desfazerAjuste(d, antiga, -antiga.valor);
+            if (antiga.contouParcela && novo.parcelamento) novo.parcelamento.pagas = Math.max(0, novo.parcelamento.pagas - 1);
+          }
+        }
         const i = d.cartoes.findIndex((x) => x.id === c.id);
         if (i >= 0) d.cartoes[i] = novo; else d.cartoes.push(novo);
       });

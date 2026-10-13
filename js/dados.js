@@ -11,7 +11,7 @@
  *   eventos: [ { id, nome, tipo: 'entrada'|'saida', categoria (texto), valor,
  *                recorrencia: 'unica'|'mensal'|'ultimoDiaUtil', data, dia,
  *                inicio, fim, ativo } ],
- *   cartoes: [ { id, nome, faturas: [{ id, vencimento, valor, paga }],
+ *   cartoes: [ { id, nome, faturas: [{ id, vencimento, valor, paga, pagaEm, criadoEm, abateuSaldo }],
  *                parcelamento: { parcelas, valor, pagas, jurosTotais } } ],
  *   compras: [ { id, descricao, valor, data, categoria, pagamento: 'conta' | id do cartão,
  *                criadoEm, abateuSaldo } ],
@@ -107,7 +107,14 @@ export function normalizar(bruto) {
       nome: texto(c.nome, 'Cartão'),
       faturas: (Array.isArray(c.faturas) ? c.faturas : [])
         .filter((f) => ehISO(f.vencimento))
-        .map((f) => ({ id: f.id || novoId(), vencimento: f.vencimento, valor: Math.abs(inteiro(f.valor)), paga: Boolean(f.paga) }))
+        .map((f) => ({
+          id: f.id || novoId(), vencimento: f.vencimento, valor: Math.abs(inteiro(f.valor)), paga: Boolean(f.paga),
+          // Preenchidos pelo botão "Paguei": data do pagamento e se já ajustou o saldo
+          pagaEm: f.paga && ehISO(f.pagaEm) ? f.pagaEm : null,
+          criadoEm: inteiro(f.criadoEm, 0),
+          abateuSaldo: Boolean(f.paga && f.abateuSaldo),
+          contouParcela: Boolean(f.paga && f.contouParcela), // somou 1 no parcelamento ao pagar
+        }))
         .sort((a, b) => a.vencimento.localeCompare(b.vencimento)),
       parcelamento: c.parcelamento && inteiro(c.parcelamento.parcelas) > 0 ? {
         parcelas: inteiro(c.parcelamento.parcelas),

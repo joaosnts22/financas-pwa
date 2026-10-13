@@ -2,11 +2,11 @@
  * ui/painel.js — Tela "Início": saldo, orçamento do mês, alertas, cartões
  * e próximos lançamentos.
  */
-import { orcamentoMes, proximosLancamentos, gerarAlertas, saldoNoDia } from '../calculos.js';
+import { orcamentoMes, proximosLancamentos, gerarAlertas, saldoNoDia, listarDividas } from '../calculos.js';
 import { formatarBRL } from '../dinheiro.js';
 import { formatarData, formatarDataCurta, chaveMes, nomeMesCurto, diferencaDias } from '../datas.js';
 import { esc, valorHTML, valorNeutro, fmt, listaExtrato, agruparPorDia, cabecalho, barra, listaAvisos } from './comum.js';
-import { icone, avatarInicial } from './icones.js';
+import { icone, avatarInicial, avatarCategoria } from './icones.js';
 
 export function telaPainel({ dados, projecao, hoje }) {
   const saldoHoje = saldoNoDia(projecao, hoje) ?? dados.conta.saldoInicial;
@@ -17,7 +17,7 @@ export function telaPainel({ dados, projecao, hoje }) {
     ${hero(dados, saldoHoje, orc, hoje)}
     ${cartaoOrcamento(orc, hoje)}
     ${alertas.length ? `<section class="cartao">${cabecalho('Alertas')}${listaAvisos(alertas)}</section>` : ''}
-    ${cartaoCartoes(dados, hoje)}
+    ${cartaoDividas(dados, hoje)}
     <section class="cartao">
       ${cabecalho('Próximos lançamentos', '<button class="btn-texto" data-ir="fluxo">Ver mês</button>')}
       ${listaExtrato(agruparPorDia(proximosLancamentos(dados, projecao, hoje, 8)), hoje, (d) => saldoNoDia(projecao, d))}
@@ -75,29 +75,32 @@ function cartaoOrcamento(orc, hoje) {
     </section>`;
 }
 
-function cartaoCartoes(dados, hoje) {
-  if (!dados.cartoes.length) return '';
-  let total = 0;
-  const linhas = dados.cartoes.map((c) => {
-    const abertas = c.faturas.filter((f) => !f.paga && f.vencimento >= hoje);
-    const proxima = abertas[0];
-    total += abertas.reduce((s, f) => s + f.valor, 0);
-    const dias = proxima ? diferencaDias(hoje, proxima.vencimento) : null;
-    const quando = proxima
-      ? `Pagar em ${formatarDataCurta(proxima.vencimento)} · ${dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : `em ${dias} dias`}`
-      : 'Nenhuma fatura em aberto';
+/** Resumo das dívidas: total, quando termina e o próximo pagamento de cada uma. */
+function cartaoDividas(dados, hoje) {
+  const r = listarDividas(dados, hoje);
+  if (!r.itens.length) {
+    return `<section class="cartao">${cabecalho('Dívidas', '<button class="btn-texto" data-ir="dividas">Ver</button>')}
+      <p class="secundario">${icone('ok')} Nenhuma dívida em aberto.</p></section>`;
+  }
+  const linhas = r.itens.map((item) => {
+    const prox = item.proximo;
+    const data = prox ? (prox.vencimento || prox.data) : null;
+    const dias = data ? diferencaDias(hoje, data) : null;
+    const quando = !data ? 'sem próxima data'
+      : dias < 0 ? `vencida em ${formatarDataCurta(data)}`
+        : `Próximo: ${formatarDataCurta(data)} · ${dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : `em ${dias} dias`}`;
     return `
       <li class="linha-cartao">
-        ${avatarInicial(c.nome)}
-        <span class="extrato-texto"><strong>${esc(c.nome)}</strong><small>${quando}</small></span>
-        <span class="direita">${proxima ? valorHTML(-proxima.valor) : valorNeutro(0)}
-          ${abertas.length > 1 ? `<small>${abertas.length} faturas: ${formatarBRL(abertas.reduce((s, f) => s + f.valor, 0))}</small>` : ''}</span>
+        ${item.tipo === 'cartao' ? avatarInicial(item.nome) : avatarCategoria('Parcela')}
+        <span class="extrato-texto"><strong>${esc(item.nome)}</strong><small>${quando}</small></span>
+        <span class="direita">${prox ? valorHTML(-prox.valor) : ''}
+          <small>${item.restante !== null ? `falta ${formatarBRL(item.restante)}` : `${formatarBRL(item.valorMensal)}/mês`}</small></span>
       </li>`;
   }).join('');
   return `
     <section class="cartao">
-      ${cabecalho('Cartões de crédito', '<button class="btn-texto" data-ir="mais">Editar</button>')}
+      ${cabecalho('Dívidas', '<button class="btn-texto" data-ir="dividas">Ver tudo</button>')}
       <ul class="lista-cartoes">${linhas}</ul>
-      <div class="rodape-total"><span>Total em faturas</span>${valorHTML(-total)}</div>
+      <div class="rodape-total"><span>Falta pagar${r.livreEm ? ` <small>· livre em ${nomeMesCurto(chaveMes(r.livreEm)).slice(0, 3)}/${r.livreEm.slice(2, 4)}</small>` : ''}</span>${valorHTML(-r.total)}</div>
     </section>`;
 }

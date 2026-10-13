@@ -59,7 +59,7 @@ export async function sincronizarLembretes(dados) {
   if (!('caches' in window)) return;
   const hoje = hojeISO();
   const lembretes = gerarLancamentos(dados, hoje, somarDias(hoje, 60))
-    .filter((l) => l.tipo === 'saida' && (l.fonte === 'evento' || l.fonte === 'fatura'))
+    .filter((l) => l.tipo === 'saida' && !l.paga && (l.fonte === 'evento' || l.fonte === 'fatura'))
     .map((l) => ({ chave: `${l.id}:${l.data}`, data: l.data, titulo: l.nome, corpo: formatarBRL(l.valor) }));
   const cache = await caches.open(CACHE);
   await cache.put(URL_LEMBRETES, new Response(JSON.stringify({

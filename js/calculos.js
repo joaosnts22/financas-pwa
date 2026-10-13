@@ -58,10 +58,19 @@ export function gerarLancamentos(dados, inicio, fim) {
     }
   }
 
-  // 2) Faturas de cartão ainda não pagas
+  // 2) Faturas de cartão
+  //    - em aberto: saída na data de vencimento
+  //    - paga pelo botão "Paguei": saída na data em que foi paga
   for (const cartao of dados.cartoes) {
     for (const f of cartao.faturas) {
-      if (f.paga || !dentro(f.vencimento)) continue;
+      if (f.paga) {
+        if (f.pagaEm && dentro(f.pagaEm)) {
+          lista.push({ nome: `Fatura ${cartao.nome}`, tipo: 'saida', categoria: 'Fatura de cartão', valor: f.valor,
+            data: f.pagaEm, fonte: 'fatura', afetaConta: true, paga: true, id: f.id });
+        }
+        continue;
+      }
+      if (!dentro(f.vencimento)) continue;
       lista.push({ nome: `Fatura ${cartao.nome}`, tipo: 'saida', categoria: 'Fatura de cartão', valor: f.valor,
         data: f.vencimento, fonte: 'fatura', afetaConta: true, id: f.id });
     }
@@ -304,7 +313,7 @@ export function proximosLancamentos(dados, projecao, hoje, quantidade = 8) {
 /** Saídas (contas e faturas) que vencem de hoje até daqui a `dias` dias. */
 export function contasAVencer(dados, hoje, dias) {
   return gerarLancamentos(dados, hoje, somarDias(hoje, dias))
-    .filter((l) => l.tipo === 'saida' && (l.fonte === 'evento' || l.fonte === 'fatura'));
+    .filter((l) => l.tipo === 'saida' && !l.paga && (l.fonte === 'evento' || l.fonte === 'fatura'));
 }
 
 /** Alertas do painel: lista de { nivel, texto }. */
@@ -346,4 +355,76 @@ export function gerarAlertas(dados, projecao, hoje, fmt) {
     alertas.push({ nivel: 'perigo', texto: `Compras do mês passaram ${fmt.valor(orc.gasto - Math.max(0, orc.livre))} do orçamento livre.` });
   }
   return alertas;
+}
+
+// ---------- Dívidas ----------
+
+/**
+ * Lista tudo o que ainda falta pagar, e quando cada dívida termina.
+ *  - Cartões: faturas em aberto (a última define quando o cartão fica quitado).
+ *  - Parcelas: saídas com categoria "Parcela" (financiamentos, compras parceladas).
+ *    Com mês final ("Até"), o app conta quantas faltam; sem mês final, mostra só o valor mensal.
+ *
+ * Retorna { itens, total, livreEm, semPrazo }:
+ *   livreEm  = data do último pagamento de todas as dívidas (null se não houver dívidas)
+ *   semPrazo = true se alguma parcela não tem data final (aí não dá para calcular livreEm)
+ */
+export function listarDividas(dados, hoje) {
+  const itens = [];
+
+  for (const c of dados.cartoes) {
+    const abertas = c.faturas.filter((f) => !f.paga);
+    if (!abertas.length) continue;
+    const pagas = c.faturas.filter((f) => f.paga);
+    const restante = abertas.reduce((s, f) => s + f.valor, 0);
+    const total = restante + pagas.reduce((s, f) => s + f.valor, 0);
+    itens.push({
+      tipo: 'cartao', id: c.id, nome: c.nome, restante,
+      quitaEm: abertas[abertas.length - 1].vencimento,
+      proximo: abertas[0],
+      faltam: abertas.length,
+      vencidas: abertas.filter((f) => f.vencimento < hoje).length,
+      progresso: total ? ((total - restante) / total) * 100 : 0,
+      parcelamento: c.parcelamento,
+    });
+  }
+
+  for (const ev of dados.eventos) {
+    if (!ev.ativo || ev.tipo !== 'saida' || ev.categoria !== 'Parcela') continue;
+    // Gera só as ocorrências deste evento
+    const sozinho = { ...dados, eventos: [ev], cartoes: [], compras: [], movimentos: [] };
+
+    if (ev.recorrencia !== 'unica' && !ev.fim) {
+      const proximo = gerarLancamentos(sozinho, somarDias(hoje, 1), somarDias(hoje, 62))[0];
+      itens.push({ tipo: 'parcela', id: ev.id, nome: ev.nome, restante: null, semFim: true, valorMensal: ev.valor, proximo });
+      continue;
+    }
+    const inicio = ev.recorrencia === 'unica' ? ev.data : inicioDoMes(ev.inicio);
+    const fim = ev.recorrencia === 'unica' ? ev.data : fimDoMes(ev.fim);
+    const todas = gerarLancamentos(sozinho, inicio, fim);
+    const futuras = todas.filter((l) => l.data > hoje);
+    if (!futuras.length) continue; // já quitada
+    itens.push({
+      tipo: 'parcela', id: ev.id, nome: ev.nome,
+      restante: futuras.length * ev.valor,
+      quitaEm: futuras[futuras.length - 1].data,
+      proximo: futuras[0],
+      faltam: futuras.length,
+      pagas: todas.length - futuras.length,
+      totalParcelas: todas.length,
+      valorMensal: ev.valor,
+      progresso: ((todas.length - futuras.length) / todas.length) * 100,
+    });
+  }
+
+  // Quem termina antes aparece primeiro; sem prazo vai para o fim
+  itens.sort((a, b) => (a.quitaEm || '9999').localeCompare(b.quitaEm || '9999'));
+  const semPrazo = itens.some((i) => i.semFim);
+  const comPrazo = itens.filter((i) => i.quitaEm);
+  return {
+    itens,
+    total: itens.reduce((s, i) => s + (i.restante || 0), 0),
+    semPrazo,
+    livreEm: !semPrazo && comPrazo.length ? comPrazo[comPrazo.length - 1].quitaEm : null,
+  };
 }

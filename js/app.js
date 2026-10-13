@@ -15,6 +15,7 @@ import { telaInvestimentos, ligarInvestimentos } from './ui/investimentos.js';
 import { telaMais, ligarMais, abrirMenuRapido, modalAtualizarSaldo } from './ui/cadastros.js';
 import { modalCompra } from './ui/compras.js';
 import { telaSimulador, ligarSimulador } from './ui/simulador.js';
+import { telaDividas, ligarDividas } from './ui/dividas.js';
 import { avisar } from './ui/comum.js';
 import { icone } from './ui/icones.js';
 
@@ -25,10 +26,11 @@ const TELAS = {
   fluxo: { titulo: 'Fluxo do mês', desenhar: telaFluxo, ligar: ligarFluxo },
   investir: { titulo: 'Investimentos', desenhar: telaInvestimentos, ligar: ligarInvestimentos },
   mais: { titulo: 'Mais', desenhar: telaMais, ligar: ligarMais },
+  dividas: { titulo: 'Dívidas', desenhar: telaDividas, ligar: ligarDividas }, // fora da barra: abre pelo Início ou por Mais
   simular: { titulo: 'Simulador', desenhar: telaSimulador, ligar: ligarSimulador }, // fora da barra: abre pelo + ou por Mais
 };
 // Nomes de abas de versões anteriores continuam funcionando
-const APELIDOS = { painel: 'inicio', dados: 'mais', dividas: 'mais' };
+const APELIDOS = { painel: 'inicio', dados: 'mais' };
 
 const estado = {
   dados: carregar(),

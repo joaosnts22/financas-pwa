@@ -21,6 +21,7 @@ Feito em **HTML, CSS e JavaScript puros**: sem build, sem bibliotecas, sem CDN, 
 | **Investir** | Caixinhas e investimentos com rendimento (% do CDI, % a.a. ou % a.m.), reserva de emergência com valor recomendado e meta mensal |
 | **Mais** | Conta, entradas, saídas fixas, cartões, orçamento e metas, lembretes e backup |
 
+| **Dívidas** | (pelo **Início** ou por **Mais**) Quanto falta pagar em cada cartão e parcela, progresso, data em que fica livre de dívidas e botão "Paguei" das faturas |
 | **Simulador** | (pelo **+** ou por **Mais**) Comprar, Cortar, Parcelar e Meta: testa ideias sem alterar os dados |
 
 O ícone de **olho** no topo esconde todos os valores.
@@ -33,6 +34,7 @@ O ícone de **olho** no topo esconde todos os valores.
 - **Avisos de compra:** ao digitar o valor, o app mostra o peso na renda, se cabe no orçamento livre e se a conta ficaria negativa.
 - **Reserva de emergência** = meses de reserva (padrão 6) × soma das saídas fixas mensais.
 - **Rendimento:** % do CDI é convertido em taxa mensal com juros compostos: `(1 + CDI × %)^(1/12) − 1`. É estimativa antes de impostos.
+- **Dívidas:** faturas em aberto de cada cartão + saídas com categoria "Parcela". Com mês final, o app conta as parcelas que faltam; a última data de todas é o dia em que você fica livre de dívidas. O botão "Paguei" registra a data do pagamento e tira o valor do saldo da conta.
 - **Simulador:** cada simulação faz uma *cópia* dos dados (`structuredClone`), aplica a mudança na cópia e compara com o cenário real. Parcelas com juros usam a Tabela Price: `parcela = valor × i / (1 − (1 + i)^−n)`. Metas usam o valor futuro com aportes mensais.
 - Todos os valores são **centavos inteiros**, o que evita erros de arredondamento (`0.1 + 0.2 ≠ 0.3`).
 
@@ -68,6 +70,7 @@ js/
     compras.js        Registro de compras com avisos de orçamento
     cadastros.js      Aba Mais + menu do botão "+"
     simulador.js      Tela do simulador
+    dividas.js        Tela de dívidas e botão "Paguei"
 ```
 
 ## Publicar no GitHub Pages
@@ -88,7 +91,7 @@ Depois de instalado, vá em **Mais → Backup → Importar** e escolha o seu arq
 
 ## Atualizar o app depois de mudanças
 
-Sempre que alterar algum arquivo, aumente a `VERSAO` no `sw.js` (`financas-v4` → `financas-v5`). Pode ser preciso fechar e abrir o app duas vezes.
+Sempre que alterar algum arquivo, aumente a `VERSAO` no `sw.js` (`financas-v5` → `financas-v6`). Pode ser preciso fechar e abrir o app duas vezes.
 
 ## Testar no computador
 

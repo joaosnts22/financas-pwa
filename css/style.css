@@ -480,3 +480,7 @@ label.check.mini { font-size: 0.8rem; gap: 4px; }
 .tm-cab span:not(:first-child), .tm-linha span:not(:first-child),
 .tp-cab span:not(:first-child), .tp-linha span:not(:first-child) { text-align: right; align-items: flex-end; }
 .destaque-ok { background: rgb(47 208 127 / 0.06); border-radius: 10px; padding-left: 6px; padding-right: 6px; }
+
+/* Dívidas */
+.secundario .ico { width: 16px; height: 16px; vertical-align: -3px; color: var(--entrada); }
+.rodape-total small { color: var(--texto-2); font-weight: 500; }
