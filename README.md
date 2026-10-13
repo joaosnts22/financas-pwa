@@ -3,14 +3,6 @@
 App web instalável (PWA) para **registrar o que entra e o que sai, saber quanto ainda dá para gastar no mês, acompanhar faturas e montar a reserva de emergência e os investimentos**.
 Feito em **HTML, CSS e JavaScript puros**: sem build, sem bibliotecas, sem CDN, e funciona offline.
 
-> ⚠️ **PRIVACIDADE: leia antes de usar**
->
-> - Este repositório é **público**. Ele **não contém e nunca deve conter** dados financeiros reais.
-> - O app abre **vazio** (ou com dados de exemplo **fictícios**). Os dados reais são importados pelo botão **Importar** e ficam salvos **só no navegador do aparelho** (localStorage). Nada é enviado para servidor nenhum.
-> - **Nunca** faça commit de arquivos de dados, backup ou calendário (`dados-*.json`, `financas-backup-*.json`, `*.ics`). O `.gitignore` já ignora esses nomes, mas confira antes de enviar.
->
-> Projeções e rendimentos são **estimativas** baseadas nos números que o usuário cadastra. Isto não é consultoria financeira.
-
 ## Telas
 
 | Aba | O que mostra |
