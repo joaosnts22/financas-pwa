@@ -2,11 +2,11 @@
  * sw.js — Service worker: guarda os arquivos do app em cache para funcionar OFFLINE.
  *
  * IMPORTANTE: sempre que você alterar qualquer arquivo do app, aumente a
- * VERSAO abaixo (v1 -> v2...). Assim o celular baixa os arquivos novos.
+ * VERSAO abaixo (v2 -> v3...). Assim o celular baixa os arquivos novos.
  * Todos os caminhos são RELATIVOS ("./") por causa do subcaminho do GitHub Pages.
  * (Este arquivo não guarda seus dados financeiros: eles ficam no localStorage.)
  */
-const VERSAO = 'financas-v1';
+const VERSAO = 'financas-v2';
 const ARQUIVOS = [
   './',
   './index.html',
@@ -19,13 +19,14 @@ const ARQUIVOS = [
   './js/calculos.js',
   './js/grafico.js',
   './js/ui/comum.js',
+  './js/ui/icones.js',
   './js/ui/painel.js',
   './js/ui/fluxo.js',
   './js/ui/cadastros.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
-  './icons/apple-touch-icon.png',
   './icons/icon-maskable-512.png',
+  './icons/apple-touch-icon.png',
 ];
 
 // Instalação: baixa e guarda tudo

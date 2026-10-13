@@ -1,16 +1,19 @@
 /**
- * ui/cadastros.js — Tela "Dados": conta e cheque especial, entradas/saídas,
- * cartões, configurações e backup. Tudo que alimenta a projeção é editado aqui.
+ * ui/cadastros.js — Telas de cadastro:
+ *  - "Dívidas": cheque especial e cartões de crédito.
+ *  - "Mais": entradas e saídas, configurações e backup.
  *
- * Padrão usado: a função tela...() devolve o HTML, e ligar...() conecta os
- * botões. Toda alteração passa por ctx.alterar(fn), que copia os dados,
- * aplica a mudança, salva no aparelho e redesenha a tela.
+ * Padrão usado: a função tela...() devolve o HTML, e ligarCadastros() conecta
+ * os botões (as duas telas usam os mesmos atributos data-acao). Toda alteração
+ * passa por ctx.alterar(fn), que copia os dados, aplica a mudança, salva no
+ * aparelho e redesenha a tela.
  */
 import { CATEGORIAS } from '../calculos.js';
-import { formatarBRL, centavosParaTexto, paraCentavos } from '../dinheiro.js';
-import { formatarData, nomeMes, lerDataBR, hojeISO } from '../datas.js';
+import { centavosParaTexto, paraCentavos } from '../dinheiro.js';
+import { formatarData, nomeMes, lerDataBR, hojeISO, somarDias } from '../datas.js';
 import { novoId, exportarJSON, lerArquivoJSON, dadosExemplo, dadosVazios } from '../dados.js';
-import { esc, abrirModal, avisar, confirmar } from './comum.js';
+import { esc, abrirModal, avisar, confirmar, valorNeutro, valorHTML, cabecalho, botaoAcao } from './comum.js';
+import { icone, avatarCategoria, avatarInicial } from './icones.js';
 
 const RECORRENCIAS = {
   unica: 'Uma vez (data fixa)',
@@ -18,72 +21,100 @@ const RECORRENCIAS = {
   ultimoDiaUtil: 'Todo mês (último dia útil)',
 };
 
-// ------------------------------------------------------------------ HTML
+const avisoExemplo = (dados) => (dados.exemplo
+  ? `<p class="alerta aviso">${icone('info')}<span>Você está vendo <strong>dados de exemplo</strong>. Importe seu JSON em <em>Mais → Backup</em>.</span></p>`
+  : '');
 
-export function telaCadastros({ dados }) {
-  const { conta, cheque, config } = dados;
+// ================================================================== Tela "Dívidas"
+
+export function telaDividas({ dados }) {
+  const { conta, cheque } = dados;
+  return `
+    ${avisoExemplo(dados)}
+    <section class="cartao">
+      ${cabecalho('Conta e cheque especial', botaoAcao('editar-conta', 'Editar'))}
+      <ul class="lista-simples">
+        <li><span>Saldo em ${formatarData(conta.dataSaldo)}</span>${valorHTML(conta.saldoInicial)}</li>
+        <li><span>Limite do cheque especial</span>${valorNeutro(cheque.limite)}</li>
+        <li><span>IOF estimado por cobrança</span>${valorNeutro(cheque.iof)}</li>
+        <li><span>Prazo sem juros</span><span>${cheque.diasSemJuros} dias</span></li>
+        <li><span>No negativo desde</span><span>${formatarData(cheque.negativoDesde)}${cheque.negativoDesde ? ` <small class="secundario">(até ${formatarData(somarDias(cheque.negativoDesde, cheque.diasSemJuros))})</small>` : ''}</span></li>
+        <li><span>Juros após o prazo</span><span>${cheque.taxaJurosMes ? `${String(cheque.taxaJurosMes).replace('.', ',')}% a.m.` : 'não cadastrado'}</span></li>
+      </ul>
+      <button class="btn btn-primario btn-bloco" data-acao="atualizar-saldo">${icone('atualizar')}Atualizar saldo de hoje</button>
+      <p class="dica">Confira o saldo real no app do banco de vez em quando e atualize aqui. A projeção recomeça a partir dele.</p>
+    </section>
+
+    ${dados.cartoes.map(cartaoCredito).join('')}
+
+    <button class="btn btn-bloco btn-tracejado" data-acao="novo-cartao">${icone('mais')}Adicionar cartão</button>
+  `;
+}
+
+function cartaoCredito(c) {
+  const abertas = c.faturas.filter((f) => !f.paga);
+  const p = c.parcelamento;
+  const pctParcelas = p && p.parcelas ? Math.round((p.pagas / p.parcelas) * 100) : 0;
+  return `
+    <section class="cartao">
+      <div class="cartao-cabecalho">
+        <div class="titulo-com-avatar">${avatarInicial(c.nome)}<span><h2>${esc(c.nome)}</h2>
+          <small class="secundario">${abertas.length} fatura(s) em aberto</small></span></div>
+        ${botaoAcao('editar-cartao', 'Editar', 'editar', `data-id="${c.id}"`)}
+      </div>
+      <ul class="lista-faturas">
+        ${c.faturas.map((f) => `
+          <li class="${f.paga ? 'paga' : ''}">
+            <span>${formatarData(f.vencimento)}</span>
+            <span class="chip ${f.paga ? 'ok' : 'neutro'}">${f.paga ? 'paga' : 'aberta'}</span>
+            ${f.paga ? valorNeutro(f.valor) : valorHTML(-f.valor)}
+          </li>`).join('') || '<li class="vazio">Nenhuma fatura cadastrada</li>'}
+      </ul>
+      ${abertas.length ? `<div class="rodape-total"><span>Total em aberto</span>${valorHTML(-abertas.reduce((s, f) => s + f.valor, 0))}</div>` : ''}
+      ${p && p.parcelas ? `
+        <div class="parcelamento">
+          <div class="grade-3">
+            <span><small>Parcelas pagas</small>${p.pagas} de ${p.parcelas}</span>
+            <span><small>Valor da parcela</small>${valorNeutro(p.valor)}</span>
+            <span><small>Juros totais</small>${valorNeutro(p.jurosTotais)}</span>
+          </div>
+          <div class="barra fina"><div class="barra-preenchida destaque" style="width:${pctParcelas}%"></div></div>
+          <p class="dica">As parcelas já estão dentro dos valores das faturas acima.</p>
+        </div>` : ''}
+    </section>`;
+}
+
+// ================================================================== Tela "Mais"
+
+export function telaMais({ dados }) {
+  const { config } = dados;
   const entradas = dados.eventos.filter((e) => e.tipo === 'entrada');
   const saidas = dados.eventos.filter((e) => e.tipo === 'saida');
 
   return `
-    ${dados.exemplo ? `<p class="alerta aviso">Você está vendo <strong>dados de exemplo</strong>. Importe seu JSON em <em>Backup</em> ou edite tudo abaixo.</p>` : ''}
-
-    <section class="cartao">
-      <div class="linha-titulo"><h2>Conta e cheque especial</h2>
-        <button class="btn btn-pequeno" data-acao="editar-conta">Editar</button></div>
-      <ul class="lista-simples">
-        <li><span>Saldo da conta em ${formatarData(conta.dataSaldo)}</span>${formatarBRL(conta.saldoInicial)}</li>
-        <li><span>Limite do cheque especial</span>${formatarBRL(cheque.limite)}</li>
-        <li><span>IOF estimado por cobrança</span>${formatarBRL(cheque.iof)}</li>
-        <li><span>Prazo sem juros</span>${cheque.diasSemJuros} dias</li>
-        <li><span>No negativo desde</span>${formatarData(cheque.negativoDesde)}</li>
-        <li><span>Juros após o prazo</span>${cheque.taxaJurosMes ? `${String(cheque.taxaJurosMes).replace('.', ',')}% ao mês` : 'não cadastrado'}</li>
-      </ul>
-      <button class="btn btn-bloco" data-acao="atualizar-saldo">Atualizar saldo de hoje</button>
-      <p class="dica">Dica: de tempos em tempos, confira o saldo real no app do banco e atualize aqui. A projeção recomeça a partir dele.</p>
-    </section>
-
+    ${avisoExemplo(dados)}
     ${secaoEventos('Entradas', entradas, 'entrada')}
     ${secaoEventos('Saídas', saidas, 'saida')}
 
     <section class="cartao">
-      <div class="linha-titulo"><h2>Cartões de crédito</h2>
-        <button class="btn btn-pequeno" data-acao="novo-cartao">+ Cartão</button></div>
-      ${dados.cartoes.length ? dados.cartoes.map((c) => `
-        <div class="sub-cartao">
-          <div class="linha-titulo"><h3>${esc(c.nome)}</h3>
-            <button class="btn btn-pequeno" data-acao="editar-cartao" data-id="${c.id}">Editar</button></div>
-          <ul class="lista-simples">
-            ${c.faturas.map((f) => `
-              <li class="${f.paga ? 'riscado' : ''}"><span>Pagar em ${formatarData(f.vencimento)}${f.paga ? ' · paga' : ''}</span>${formatarBRL(f.valor)}</li>`).join('') || '<li class="secundario">Nenhuma fatura cadastrada</li>'}
-          </ul>
-          ${c.parcelamento && c.parcelamento.parcelas ? `
-            <p class="secundario">Parcelamento: ${c.parcelamento.pagas}/${c.parcelamento.parcelas} pagas ·
-            ${formatarBRL(c.parcelamento.valor)} cada · juros ${formatarBRL(c.parcelamento.jurosTotais)}
-            <br><small>(as parcelas já vêm dentro das faturas acima)</small></p>` : ''}
-        </div>`).join('') : '<p class="vazio">Nenhum cartão.</p>'}
-    </section>
-
-    <section class="cartao">
-      <div class="linha-titulo"><h2>Configurações</h2>
-        <button class="btn btn-pequeno" data-acao="editar-config">Editar</button></div>
+      ${cabecalho('Configurações', botaoAcao('editar-config', 'Editar'))}
       <ul class="lista-simples">
-        <li><span>Projetar até</span>${nomeMes(config.mesFinal)}</li>
-        <li><span>Alerta de uso do cheque</span>${config.alertaChequePct}%</li>
-        <li><span>Feriados cadastrados</span>${config.feriados.length}</li>
+        <li><span>Projetar até</span><span>${nomeMes(config.mesFinal)}</span></li>
+        <li><span>Alerta de uso do cheque</span><span>${config.alertaChequePct}%</span></li>
+        <li><span>Feriados cadastrados</span><span>${config.feriados.length}</span></li>
       </ul>
     </section>
 
     <section class="cartao">
-      <h2>Backup</h2>
-      <p class="dica">Seus dados ficam <strong>só neste aparelho</strong>. Exporte um backup com frequência e guarde fora do GitHub.</p>
+      ${cabecalho('Backup')}
+      <p class="dica">${icone('escudo')} Seus dados ficam <strong>só neste aparelho</strong>. Exporte um backup com frequência e guarde fora do GitHub.</p>
       <div class="botoes">
-        <button class="btn btn-primario" data-acao="exportar">⬇ Exportar JSON</button>
-        <label class="btn">⬆ Importar JSON<input type="file" accept="application/json,.json" data-acao="importar" hidden></label>
+        <button class="btn btn-primario" data-acao="exportar">${icone('baixar')}Exportar</button>
+        <label class="btn">${icone('subir')}Importar<input type="file" accept="application/json,.json" data-acao="importar" hidden></label>
       </div>
       <div class="botoes">
         <button class="btn" data-acao="exemplo">Carregar exemplo</button>
-        <button class="btn btn-perigo" data-acao="zerar">Apagar tudo</button>
+        <button class="btn btn-perigo" data-acao="zerar">${icone('lixeira')}Apagar tudo</button>
       </div>
     </section>
   `;
@@ -92,17 +123,17 @@ export function telaCadastros({ dados }) {
 function secaoEventos(titulo, lista, tipo) {
   return `
     <section class="cartao">
-      <div class="linha-titulo"><h2>${titulo}</h2>
-        <button class="btn btn-pequeno" data-acao="novo-evento" data-tipo="${tipo}">+ Adicionar</button></div>
-      ${lista.length ? `<ul class="lista-eventos">
+      ${cabecalho(titulo, botaoAcao('novo-evento', 'Adicionar', 'mais', `data-tipo="${tipo}"`))}
+      ${lista.length ? `<ul class="extrato">
         ${lista.map((e) => `
           <li class="${e.ativo ? '' : 'inativo'}">
-            <button class="item-clicavel" data-acao="editar-evento" data-id="${e.id}">
-              <span>
-                <strong>${esc(e.nome)}</strong>${e.cenario ? ' <span class="selo">cenário</span>' : ''}${e.ativo ? '' : ' <span class="selo cinza">desligado</span>'}
-                <small>${descreverRecorrencia(e)}</small>
+            <button class="extrato-item item-clicavel" data-acao="editar-evento" data-id="${e.id}">
+              ${avatarCategoria(e.categoria)}
+              <span class="extrato-texto">
+                <strong>${esc(e.nome)}</strong>
+                <small>${descreverRecorrencia(e)}${e.cenario ? ' · <span class="selo">cenário</span>' : ''}${e.ativo ? '' : ' · <span class="selo cinza">desligado</span>'}</small>
               </span>
-              <span class="valor ${tipo === 'entrada' ? 'positivo' : 'negativo'}">${formatarBRL(e.valor)}</span>
+              ${valorHTML(tipo === 'entrada' ? e.valor : -e.valor)}
             </button>
           </li>`).join('')}
       </ul>` : '<p class="vazio">Nada cadastrado.</p>'}
@@ -116,7 +147,7 @@ function descreverRecorrencia(e) {
   return `Último dia útil, ${periodo}`;
 }
 
-// ------------------------------------------------------------------ Eventos (cliques)
+// ================================================================== Cliques
 
 export function ligarCadastros(raiz, ctx) {
   raiz.addEventListener('click', (e) => {
@@ -160,7 +191,33 @@ export function ligarCadastros(raiz, ctx) {
   });
 }
 
-// ------------------------------------------------------------------ Modais
+/**
+ * Menu do botão "+" (central da barra inferior).
+ * Reaproveita os mesmos formulários das telas de cadastro.
+ */
+export function abrirMenuRapido(ctx) {
+  abrirModal({
+    titulo: 'O que você quer fazer?',
+    semRodape: true,
+    corpo: `
+      <div class="menu-rapido">
+        <button type="button" data-rapido="entrada">${avatarCategoria('salario')}<span><strong>Nova entrada</strong><small>Salário, venda, horas extras...</small></span></button>
+        <button type="button" data-rapido="saida">${avatarCategoria('gasto')}<span><strong>Nova saída</strong><small>Conta fixa, gasto, parcela...</small></span></button>
+        <button type="button" data-rapido="saldo">${avatarCategoria('desconto')}<span><strong>Atualizar saldo de hoje</strong><small>Conferiu no app do banco? Ajuste aqui.</small></span></button>
+      </div>`,
+    aoMontar: (f) => {
+      f.querySelector('.menu-rapido').addEventListener('click', (e) => {
+        const b = e.target.closest('[data-rapido]');
+        if (!b) return;
+        document.getElementById('modal').close();
+        if (b.dataset.rapido === 'saldo') modalAtualizarSaldo(ctx);
+        else modalEvento(ctx, null, b.dataset.rapido);
+      });
+    },
+  });
+}
+
+// ================================================================== Modais (formulários)
 
 /** Lê um campo de valor em R$ e devolve centavos (ou lança erro). */
 function lerValor(form, nome, rotulo, { permitirNegativo = false } = {}) {
@@ -210,7 +267,7 @@ function modalConta(ctx) {
   });
 }
 
-function modalAtualizarSaldo(ctx) {
+export function modalAtualizarSaldo(ctx) {
   abrirModal({
     titulo: 'Saldo de hoje',
     corpo: `
@@ -232,7 +289,7 @@ function modalAtualizarSaldo(ctx) {
   });
 }
 
-function modalEvento(ctx, evento, tipoNovo) {
+export function modalEvento(ctx, evento, tipoNovo) {
   const ev = evento || {
     nome: '', tipo: tipoNovo, categoria: tipoNovo === 'entrada' ? 'salario' : 'fixa', valor: 0,
     recorrencia: 'unica', data: hojeISO(), dia: 5, inicio: hojeISO().slice(0, 7), fim: '', ativo: true, cenario: false,
@@ -259,7 +316,7 @@ function modalEvento(ctx, evento, tipoNovo) {
       </div>
       <label class="check"><input type="checkbox" name="ativo" ${ev.ativo ? 'checked' : ''}> Ligado (entra na projeção)</label>
       <label class="check"><input type="checkbox" name="cenario" ${ev.cenario ? 'checked' : ''}> É um cenário incerto (ex.: horas extras)</label>
-      ${evento ? '<button type="button" class="btn btn-perigo btn-bloco" data-excluir>Excluir</button>' : ''}`,
+      ${evento ? `<button type="button" class="btn btn-perigo btn-bloco" data-excluir>${icone('lixeira')}Excluir</button>` : ''}`,
     aoMontar: (f) => {
       // Mostra só os campos que fazem sentido para o tipo de repetição
       const atualizarCampos = () => {
@@ -332,7 +389,7 @@ function modalCartao(ctx, cartao) {
         ${campoValor('valorParcela', 'Valor da parcela', p.valor)}
         ${campoValor('juros', 'Juros totais', p.jurosTotais)}
       </div>
-      ${cartao ? '<button type="button" class="btn btn-perigo btn-bloco" data-excluir>Excluir cartão</button>' : ''}`,
+      ${cartao ? `<button type="button" class="btn btn-perigo btn-bloco" data-excluir>${icone('lixeira')}Excluir cartão</button>` : ''}`,
     aoMontar: (f) => {
       const caixa = f.querySelector('.faturas');
       f.querySelector('[data-add-fatura]').addEventListener('click', () => caixa.insertAdjacentHTML('beforeend', linhaFatura()));

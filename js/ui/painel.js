@@ -1,81 +1,136 @@
 /**
- * ui/painel.js — Tela inicial: saldo, dívidas, uso do cheque, alertas e próximos eventos.
+ * ui/painel.js — Tela "Início": saldo, entradas/saídas do mês, alertas,
+ * cheque especial, cartões e próximos lançamentos.
  */
 import { diaAtual, proximosEventos, resumoDividas, gerarAlertas } from '../calculos.js';
 import { formatarBRL } from '../dinheiro.js';
-import { formatarData, formatarDataCurta, diaDaSemana } from '../datas.js';
-import { esc, valorHTML, fmt } from './comum.js';
+import { formatarData, formatarDataCurta, chaveMes, nomeMes, somarDias, diferencaDias } from '../datas.js';
+import { esc, valorHTML, valorNeutro, fmt, listaExtrato, cabecalho } from './comum.js';
+import { icone, avatarInicial } from './icones.js';
 
-const ICONES = { perigo: '⛔', aviso: '⚠️', info: 'ℹ️' };
+const ICONE_ALERTA = { perigo: 'perigo', aviso: 'alerta', info: 'info' };
 
 export function telaPainel({ dados, projecao, hoje }) {
   const atual = diaAtual(projecao, hoje);
-  const dividas = resumoDividas(dados, projecao, hoje);
-  const alertas = gerarAlertas(dados, projecao, hoje, fmt);
-  const proximos = proximosEventos(projecao, hoje, 8);
-  const { limite } = dados.cheque;
-  const usado = Math.max(0, -atual.saldo);
-  const pct = limite > 0 ? Math.min(100, Math.round((usado / limite) * 100)) : 0;
-  const disponivel = atual.saldo + limite;
-  const classeBarra = pct >= 100 ? 'perigo' : pct >= dados.config.alertaChequePct ? 'aviso' : 'ok';
+  const mesAtual = projecao.meses.find((m) => m.chave === chaveMes(atual.data)) || projecao.meses[0];
+  const limite = dados.cheque.limite;
 
   return `
-    <section class="cartao destaque">
-      <p class="rotulo">Saldo em conta · ${formatarData(atual.data)}</p>
-      <p class="valor-grande">${valorHTML(atual.saldo)}</p>
-      <p class="secundario">Disponível com o limite: <strong>${formatarBRL(disponivel)}</strong></p>
-    </section>
+    ${heroSaldo(atual, mesAtual, limite)}
+    ${cartaoAlertas(gerarAlertas(dados, projecao, hoje, fmt))}
+    ${cartaoCheque(dados, atual)}
+    ${cartaoCartoes(dados, projecao, hoje, atual)}
+    ${cartaoProximos(projecao, hoje)}
+    <p class="nota">${icone('escudo')} Projeções são <strong>estimativas</strong> com base nos números que você cadastrou. Confira sempre no app do banco.</p>
+  `;
+}
 
+/** Bloco principal com o saldo (o "cartão roxo" do topo). */
+function heroSaldo(atual, mes, limite) {
+  const nomeDoMes = nomeMes(mes.chave).slice(0, 3); // "out", "nov"...
+  return `
+    <section class="hero">
+      <p class="hero-rotulo">Saldo em conta · ${formatarData(atual.data)}</p>
+      <p class="hero-valor">${valorHTML(atual.saldo, { neutro: true })}</p>
+      <p class="hero-sub">Disponível com limite: ${valorNeutro(atual.saldo + limite)}</p>
+      <div class="hero-resumo">
+        <div class="resumo-item">
+          <span class="resumo-icone entrada">${icone('setaCima')}</span>
+          <span><small>Entradas · ${nomeDoMes}</small>${valorNeutro(mes.entradas)}</span>
+        </div>
+        <div class="resumo-item">
+          <span class="resumo-icone saida">${icone('setaBaixo')}</span>
+          <span><small>Saídas · ${nomeDoMes}</small>${valorNeutro(mes.saidas)}</span>
+        </div>
+      </div>
+    </section>`;
+}
+
+function cartaoAlertas(alertas) {
+  if (!alertas.length) return '';
+  return `
     <section class="cartao">
-      <div class="linha-titulo">
-        <h2>Cheque especial</h2>
-        <span class="secundario">${formatarBRL(usado)} de ${formatarBRL(limite)}</span>
+      ${cabecalho('Alertas')}
+      <ul class="alertas">
+        ${alertas.map((a) => `<li class="alerta ${a.nivel}">${icone(ICONE_ALERTA[a.nivel])}<span>${esc(a.texto)}</span></li>`).join('')}
+      </ul>
+    </section>`;
+}
+
+function cartaoCheque(dados, atual) {
+  const { limite, diasSemJuros } = dados.cheque;
+  const usado = Math.max(0, -atual.saldo);
+  const pct = limite > 0 ? Math.min(100, Math.round((usado / limite) * 100)) : 0;
+  const nivel = pct >= 100 ? 'perigo' : pct >= dados.config.alertaChequePct ? 'aviso' : 'ok';
+
+  let prazo = 'Sem uso no momento';
+  if (usado > 0 && atual.negativoDesde) {
+    const restantes = diasSemJuros - atual.diasNegativo;
+    const fimPrazo = somarDias(atual.negativoDesde, diasSemJuros);
+    prazo = restantes >= 0
+      ? `Sem juros até ${formatarData(fimPrazo)} · ${restantes} dia(s)`
+      : `Prazo sem juros encerrado em ${formatarData(fimPrazo)}`;
+  }
+
+  return `
+    <section class="cartao">
+      ${cabecalho('Cheque especial', `<span class="chip ${nivel}">${pct}% usado</span>`)}
+      <div class="linha-valores">
+        <span><small>Em uso</small>${valorNeutro(usado)}</span>
+        <span class="direita"><small>Limite</small>${valorNeutro(limite)}</span>
       </div>
       <div class="barra" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100">
-        <div class="barra-preenchida ${classeBarra}" style="width:${pct}%"></div>
+        <div class="barra-preenchida ${nivel}" style="width:${pct}%"></div>
       </div>
-      <p class="secundario">${pct}% do limite em uso</p>
-    </section>
+      <p class="secundario">${prazo}</p>
+    </section>`;
+}
 
+function cartaoCartoes(dados, projecao, hoje, atual) {
+  const dividas = resumoDividas(dados, projecao, hoje);
+  const linhas = dados.cartoes.map((c) => {
+    const proxima = c.faturas.find((f) => !f.paga && f.vencimento > atual.data);
+    const resumo = dividas.cartoes.find((r) => r.nome === c.nome);
+    const dias = proxima ? diferencaDias(hoje, proxima.vencimento) : null;
+    const quando = proxima
+      ? `Pagar em ${formatarDataCurta(proxima.vencimento)} · ${dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : `em ${dias} dias`}`
+      : 'Nenhuma fatura em aberto';
+    return `
+      <li class="linha-cartao">
+        ${avatarInicial(c.nome)}
+        <span class="extrato-texto">
+          <strong>${esc(c.nome)}</strong>
+          <small>${quando}</small>
+        </span>
+        <span class="direita">
+          ${proxima ? valorHTML(-proxima.valor) : valorNeutro(0)}
+          ${resumo && resumo.quantidadeFaturas > 1 ? `<small>total ${formatarBRL(resumo.emAberto)}</small>` : ''}
+        </span>
+      </li>`;
+  }).join('');
+
+  return `
     <section class="cartao">
-      <div class="linha-titulo">
-        <h2>Dívida total</h2>
-        <span class="valor negativo forte">${formatarBRL(dividas.total)}</span>
+      ${cabecalho('Cartões de crédito', '<button class="btn-texto" data-ir="dividas">Ver tudo</button>')}
+      ${linhas ? `<ul class="lista-cartoes">${linhas}</ul>` : '<p class="vazio">Nenhum cartão cadastrado.</p>'}
+      <div class="rodape-total">
+        <span>Dívida total <small>(cheque + faturas)</small></span>
+        ${valorHTML(-dividas.total)}
       </div>
-      <ul class="lista-simples">
-        <li><span>Cheque especial</span>${formatarBRL(dividas.cheque)}</li>
-        ${dividas.cartoes.map((c) => `
-          <li>
-            <span>${esc(c.nome)} <small class="secundario">(${c.quantidadeFaturas} fatura(s)${c.parcelasRestantes ? ` · ${c.parcelasRestantes} parcela(s) de ${formatarBRL(c.valorParcela)}` : ''})</small></span>
-            ${formatarBRL(c.emAberto)}
-          </li>`).join('')}
-      </ul>
-    </section>
+    </section>`;
+}
 
-    ${alertas.length ? `
+function cartaoProximos(projecao, hoje) {
+  // Agrupa os próximos lançamentos por dia, guardando o saldo ao fim de cada dia
+  const grupos = [];
+  for (const it of proximosEventos(projecao, hoje, 8)) {
+    let g = grupos[grupos.length - 1];
+    if (!g || g.data !== it.data) grupos.push(g = { data: it.data, saldo: it.saldoDepois, itens: [] });
+    g.itens.push(it);
+  }
+  return `
     <section class="cartao">
-      <h2>Alertas</h2>
-      <ul class="alertas">
-        ${alertas.map((a) => `<li class="alerta ${a.nivel}"><span aria-hidden="true">${ICONES[a.nivel]}</span>${esc(a.texto)}</li>`).join('')}
-      </ul>
-    </section>` : ''}
-
-    <section class="cartao">
-      <h2>Próximos eventos</h2>
-      ${proximos.length ? `
-      <ul class="eventos">
-        ${proximos.map((e) => `
-          <li class="evento ${e.tipo}">
-            <span class="evento-data">${formatarDataCurta(e.data)}<small>${diaDaSemana(e.data)}</small></span>
-            <span class="evento-nome">${esc(e.nome)}${e.cenario ? ' <span class="selo">cenário</span>' : ''}
-              <small>saldo depois: ${formatarBRL(e.saldoDepois)}</small></span>
-            <span class="evento-valor">${e.tipo === 'info'
-              ? `<span class="valor info">${formatarBRL(e.valor)}</span>`
-              : valorHTML(e.tipo === 'entrada' ? e.valor : -e.valor, { sinal: true })}</span>
-          </li>`).join('')}
-      </ul>` : '<p class="vazio">Nenhum evento futuro cadastrado.</p>'}
-    </section>
-
-    <p class="nota">⚖️ Projeções são <strong>estimativas</strong> baseadas nos números que você cadastrou. Confira sempre no app do banco.</p>
-  `;
+      ${cabecalho('Próximos lançamentos', '<button class="btn-texto" data-ir="fluxo">Ver fluxo</button>')}
+      ${listaExtrato(grupos, hoje)}
+    </section>`;
 }

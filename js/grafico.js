@@ -1,15 +1,15 @@
 /**
- * grafico.js — Gráfico de linha do saldo, desenhado em SVG "na mão".
+ * grafico.js — Gráficos desenhados em SVG "na mão", sem biblioteca.
  *
  * SVG é um formato de desenho vetorial que o navegador entende nativamente.
- * Montamos o texto do SVG com coordenadas calculadas, sem biblioteca nenhuma.
+ * Montamos o texto do SVG com coordenadas calculadas.
  * O viewBox faz o desenho se adaptar sozinho à largura da tela.
  */
 import { formatarDataCurta, chaveMes } from './datas.js';
 
 const LARGURA = 640;
-const ALTURA = 260;
-const MARGEM = { topo: 16, direita: 12, baixo: 28, esquerda: 56 };
+const ALTURA = 240;
+const MARGEM = { topo: 16, direita: 10, baixo: 34, esquerda: 74 };
 
 /** Formata valores curtos para o eixo: 150000 centavos -> "1,5 mil" */
 function rotuloEixo(centavos) {
@@ -19,11 +19,13 @@ function rotuloEixo(centavos) {
 }
 
 /**
- * @param dias   lista de { data, saldo } (saída de projetar())
- * @param limite limite do cheque especial em centavos (linha vermelha em -limite)
- * @param hoje   data ISO de hoje (linha vertical)
+ * Gráfico de linha do saldo dia a dia.
+ * @param dias        lista de { data, saldo } (saída de projetar())
+ * @param limite      limite do cheque especial em centavos (linha em -limite)
+ * @param hoje        data ISO de hoje (linha vertical)
+ * @param mesDestaque chave "AAAA-MM" do mês a destacar (faixa de fundo), opcional
  */
-export function svgSaldo(dias, limite, hoje) {
+export function svgSaldo(dias, limite, hoje, mesDestaque = null) {
   if (dias.length < 2) return '<p class="vazio">Sem dados suficientes para o gráfico.</p>';
 
   const saldos = dias.map((d) => d.saldo);
@@ -40,17 +42,26 @@ export function svgSaldo(dias, limite, hoje) {
 
   const partes = [];
 
+  // Faixa de fundo no mês selecionado
+  if (mesDestaque) {
+    const idx = dias.map((d, i) => (chaveMes(d.data) === mesDestaque ? i : -1)).filter((i) => i >= 0);
+    if (idx.length) {
+      const x1 = x(idx[0]);
+      const x2 = x(Math.min(idx[idx.length - 1] + 1, dias.length - 1));
+      partes.push(`<rect class="g-destaque" x="${x1}" y="${MARGEM.topo}" width="${Math.max(2, x2 - x1)}" height="${areaA}" rx="6"/>`);
+    }
+  }
+
   // Linhas de grade horizontais (5 divisões)
   for (let i = 0; i <= 4; i++) {
     const v = min + ((max - min) * i) / 4;
     partes.push(`<line class="g-grade" x1="${MARGEM.esquerda}" x2="${LARGURA - MARGEM.direita}" y1="${y(v)}" y2="${y(v)}"/>`);
-    partes.push(`<text class="g-rotulo" x="${MARGEM.esquerda - 6}" y="${y(v) + 4}" text-anchor="end">${rotuloEixo(v)}</text>`);
+    partes.push(`<text class="g-rotulo" x="${MARGEM.esquerda - 8}" y="${y(v) + 6}" text-anchor="end">${rotuloEixo(v)}</text>`);
   }
 
   // Início de cada mês no eixo X
   dias.forEach((d, i) => {
     if (i > 0 && chaveMes(d.data) !== chaveMes(dias[i - 1].data)) {
-      partes.push(`<line class="g-mes" x1="${x(i)}" x2="${x(i)}" y1="${MARGEM.topo}" y2="${ALTURA - MARGEM.baixo}"/>`);
       partes.push(`<text class="g-rotulo" x="${x(i)}" y="${ALTURA - 8}" text-anchor="middle">${formatarDataCurta(d.data)}</text>`);
     }
   });
@@ -59,7 +70,7 @@ export function svgSaldo(dias, limite, hoje) {
   partes.push(`<line class="g-zero" x1="${MARGEM.esquerda}" x2="${LARGURA - MARGEM.direita}" y1="${y(0)}" y2="${y(0)}"/>`);
   if (limite > 0) {
     partes.push(`<line class="g-limite" x1="${MARGEM.esquerda}" x2="${LARGURA - MARGEM.direita}" y1="${y(-limite)}" y2="${y(-limite)}"/>`);
-    partes.push(`<text class="g-rotulo g-rotulo-limite" x="${LARGURA - MARGEM.direita}" y="${y(-limite) - 4}" text-anchor="end">limite do cheque</text>`);
+    partes.push(`<text class="g-rotulo g-rotulo-limite" x="${LARGURA - MARGEM.direita}" y="${y(-limite) - 5}" text-anchor="end">limite do cheque</text>`);
   }
 
   // Linha "hoje"
@@ -85,4 +96,30 @@ export function svgSaldo(dias, limite, hoje) {
 
   return `<svg class="grafico" viewBox="0 0 ${LARGURA} ${ALTURA}" role="img"
     aria-label="Gráfico do saldo projetado dia a dia">${partes.join('')}</svg>`;
+}
+
+/**
+ * Gráfico de rosca (donut) para mostrar a divisão das saídas.
+ * Truque do "stroke-dasharray": um círculo com contorno grosso em que só um
+ * pedaço do contorno é pintado. Com raio 15,915 a circunferência dá 100,
+ * então cada fatia usa direto a sua porcentagem.
+ * @param fatias lista de { valor (centavos), cor }
+ */
+export function svgRosca(fatias) {
+  const R = 15.915;
+  const total = fatias.reduce((s, f) => s + f.valor, 0);
+  if (!total) {
+    return `<svg class="rosca" viewBox="0 0 42 42"><circle cx="21" cy="21" r="${R}" fill="none" class="rosca-vazia" stroke-width="5.5"/></svg>`;
+  }
+  const espaco = fatias.length > 1 ? 0.8 : 0; // pequeno vão entre as fatias
+  let acumulado = 0;
+  const arcos = fatias.map((f) => {
+    const pct = (f.valor / total) * 100;
+    const arco = `<circle cx="21" cy="21" r="${R}" fill="none" stroke="${f.cor}" stroke-width="5.5"
+      stroke-dasharray="${Math.max(0.01, pct - espaco)} ${100 - pct + espaco}"
+      stroke-dashoffset="${25 - acumulado}"/>`; // 25 = começa no topo (12h)
+    acumulado += pct;
+    return arco;
+  });
+  return `<svg class="rosca" viewBox="0 0 42 42" role="img" aria-label="Divisão das saídas por categoria">${arcos.join('')}</svg>`;
 }

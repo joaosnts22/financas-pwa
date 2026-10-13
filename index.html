@@ -8,9 +8,9 @@
 
   <!-- PWA: manifest e cor da barra do navegador (clara/escura) -->
   <link rel="manifest" href="./manifest.json">
-  <meta name="theme-color" content="#0f766e" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0b1220" media="(prefers-color-scheme: dark)">
-  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f4f5fa" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0a0c14" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="dark light">
 
   <!-- iPhone (Safari): ícone e modo tela cheia ao adicionar à tela inicial -->
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
@@ -25,17 +25,20 @@
 <body>
   <header class="topo">
     <h1 id="titulo">Minhas Finanças</h1>
+    <button id="btn-olho" class="btn-icone" aria-label="Mostrar ou esconder valores"></button>
   </header>
 
   <main id="conteudo" aria-live="polite">
     <noscript>Este app precisa de JavaScript ativado.</noscript>
   </main>
 
-  <!-- Navegação inferior (mobile-first) -->
+  <!-- Navegação inferior: 4 abas + botão "+" no meio -->
   <nav id="nav" class="nav-inferior" hidden>
-    <button data-aba="painel"><span aria-hidden="true">🏠</span>Painel</button>
-    <button data-aba="fluxo"><span aria-hidden="true">📈</span>Fluxo</button>
-    <button data-aba="dados"><span aria-hidden="true">✏️</span>Dados</button>
+    <button data-aba="inicio"><span data-icone="inicio"></span>Início</button>
+    <button data-aba="fluxo"><span data-icone="fluxo"></span>Fluxo</button>
+    <button id="btn-mais" class="fab" aria-label="Novo lançamento"><span data-icone="mais"></span></button>
+    <button data-aba="dividas"><span data-icone="cartao"></span>Dívidas</button>
+    <button data-aba="mais"><span data-icone="menu"></span>Mais</button>
   </nav>
 
   <dialog id="modal"></dialog>
