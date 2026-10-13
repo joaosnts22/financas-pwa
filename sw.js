@@ -5,11 +5,11 @@
  *    navegador acordar o app com a "sincronização periódica").
  *
  * IMPORTANTE: sempre que você alterar qualquer arquivo do app, aumente a
- * VERSAO abaixo (v5 -> v6...). Assim o celular baixa os arquivos novos.
+ * VERSAO abaixo (v6 -> v7...). Assim o celular baixa os arquivos novos.
  * Todos os caminhos são RELATIVOS ("./") por causa do subcaminho do GitHub Pages.
  * (Seus dados financeiros NÃO ficam aqui: eles ficam no localStorage.)
  */
-const VERSAO = 'financas-v5';
+const VERSAO = 'financas-v6';
 const ARQUIVOS = [
   './',
   './index.html',

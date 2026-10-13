@@ -85,6 +85,13 @@ export function corDoTexto(texto) {
   return PALETA[h % PALETA.length];
 }
 
+/**
+ * Paleta para gráficos: cores bem diferentes entre si, usadas por POSIÇÃO
+ * (1ª fatia, 2ª fatia...). Assim duas categorias nunca ficam com a mesma cor
+ * no mesmo gráfico (o que pode acontecer com a cor "por texto").
+ */
+export const PALETA_GRAFICO = ['#7c5cff', '#f59e0b', '#22c55e', '#f43f5e', '#06b6d4', '#ec4899', '#84cc16', '#3b82f6', '#f97316', '#a855f7', '#14b8a6', '#64748b'];
+
 /** Cores fixas para categorias "do sistema", para ficarem sempre iguais. */
 const CORES_FIXAS = { 'Fatura de cartão': '#f43f5e', Investimento: '#22c55e' };
 export function corCategoria(categoria) {

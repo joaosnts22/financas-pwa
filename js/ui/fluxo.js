@@ -7,7 +7,7 @@ import { formatarBRL } from '../dinheiro.js';
 import { nomeMes, formatarData, chaveMes } from '../datas.js';
 import { svgSaldo, svgRosca } from '../grafico.js';
 import { valorHTML, valorNeutro, listaExtrato, agruparPorDia, cabecalho, barra, esc } from './comum.js';
-import { icone, corCategoria } from './icones.js';
+import { icone, PALETA_GRAFICO } from './icones.js';
 
 export function telaFluxo({ dados, projecao, hoje, mesFluxo, meses }) {
   const i = Math.max(0, meses.indexOf(mesFluxo));
@@ -76,8 +76,8 @@ export function telaFluxo({ dados, projecao, hoje, mesFluxo, meses }) {
 function cartaoCategorias(r) {
   const fatias = Object.entries(r.consumo)
     .filter(([cat]) => cat !== 'Investimento')
-    .map(([cat, valor]) => ({ cat, valor, cor: corCategoria(cat) }))
-    .sort((a, b) => b.valor - a.valor);
+    .sort((a, b) => b[1] - a[1])
+    .map(([cat, valor], i) => ({ cat, valor, cor: PALETA_GRAFICO[i % PALETA_GRAFICO.length] }));
   if (!fatias.length) return '';
   const total = fatias.reduce((s, f) => s + f.valor, 0);
   return `

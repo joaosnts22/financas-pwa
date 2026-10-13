@@ -176,29 +176,54 @@ export function dadosVazios() {
   return normalizar({ conta: { saldoInicial: 0, dataSaldo: hojeISO(), atualizadoEm: Date.now() } });
 }
 
-/** Dados de EXEMPLO, 100% fictícios. Datas relativas a hoje. */
+/**
+ * Dados de EXEMPLO, 100% fictícios (usados também nos prints do README).
+ * As datas são relativas a hoje, para o exemplo nunca "envelhecer".
+ */
 export function dadosExemplo() {
   const hoje = hojeISO();
   const mes = chaveMes(hoje);
-  const dia = (m, d) => { const [a, mm] = somarMeses(mes, m).split('-').map(Number); return montarISO(a, mm, d); };
+  const diaHoje = Number(hoje.slice(8, 10));
+  // Dia do mês atual que já passou (ou hoje), para compras "já feitas"
+  const jaFoi = (d) => montarISO(Number(mes.slice(0, 4)), Number(mes.slice(5, 7)), Math.min(d, diaHoje));
+  const noMes = (m, d) => { const [a, mm] = somarMeses(mes, m).split('-').map(Number); return montarISO(a, mm, d); };
+  const agora = Date.now();
 
-  return normalizar({
+  const dados = normalizar({
     exemplo: true,
-    conta: { saldoInicial: 85000, dataSaldo: hoje, atualizadoEm: Date.now() },
+    conta: { saldoInicial: 184750, dataSaldo: hoje, atualizadoEm: agora },
     eventos: [
-      { nome: 'Salário (exemplo)', tipo: 'entrada', categoria: 'Trabalho', valor: 320000, recorrencia: 'ultimoDiaUtil', inicio: mes },
-      { nome: 'Aluguel (exemplo)', tipo: 'saida', categoria: 'Despesa fixa', valor: 120000, recorrencia: 'mensal', dia: 5, inicio: mes },
-      { nome: 'Luz e internet (exemplo)', tipo: 'saida', categoria: 'Despesa fixa', valor: 25000, recorrencia: 'mensal', dia: 10, inicio: mes },
+      { nome: 'Salário', tipo: 'entrada', categoria: 'Trabalho', valor: 420000, recorrencia: 'ultimoDiaUtil', inicio: mes },
+      { nome: 'Freela de design', tipo: 'entrada', categoria: 'Freela', valor: 60000, recorrencia: 'unica', data: noMes(1, 12) },
+      { nome: 'Aluguel', tipo: 'saida', categoria: 'Despesa fixa', valor: 140000, recorrencia: 'mensal', dia: 5, inicio: mes },
+      { nome: 'Luz', tipo: 'saida', categoria: 'Despesa fixa', valor: 18000, recorrencia: 'mensal', dia: 10, inicio: mes },
+      { nome: 'Internet', tipo: 'saida', categoria: 'Despesa fixa', valor: 9990, recorrencia: 'mensal', dia: 15, inicio: mes },
+      { nome: 'Academia', tipo: 'saida', categoria: 'Despesa fixa', valor: 11990, recorrencia: 'mensal', dia: 8, inicio: mes },
+      { nome: 'Notebook 10x', tipo: 'saida', categoria: 'Parcela', valor: 32000, recorrencia: 'mensal', dia: 20,
+        inicio: somarMeses(mes, -3), fim: somarMeses(mes, 6) },
     ],
-    cartoes: [{ nome: 'Cartão Exemplo', faturas: [0, 1, 2].map((i) => ({ vencimento: dia(i + 1, 8), valor: 45000 })) }],
+    cartoes: [{
+      nome: 'Cartão Roxo',
+      faturas: [0, 1, 2].map((i) => ({ vencimento: noMes(i + 1, 7), valor: [68540, 41200, 39800][i] })),
+    }],
     compras: [
-      { descricao: 'Mercado (exemplo)', valor: 18000, data: hoje, categoria: 'Mercado', pagamento: 'conta' },
+      { descricao: 'Supermercado', valor: 38760, data: jaFoi(2), categoria: 'Mercado', pagamento: 'conta' },
+      { descricao: 'Ração e areia', valor: 14290, data: jaFoi(4), categoria: 'Pets', pagamento: 'conta' },
+      { descricao: 'Cinema', valor: 6400, data: jaFoi(6), categoria: 'Lazer', pagamento: 'conta' },
+      { descricao: 'Farmácia', valor: 8935, data: jaFoi(9), categoria: 'Saúde', pagamento: 'conta' },
+      { descricao: 'Uber', valor: 3280, data: jaFoi(11), categoria: 'Transporte', pagamento: 'conta' },
     ],
     investimentos: [
-      { nome: 'Reserva de emergência', instituicao: 'Banco Exemplo', tipo: 'emergencia', saldo: 150000, dataSaldo: hoje, rendimento: { modo: 'cdi', taxa: 100 }, mesesReserva: 6 },
+      { nome: 'Reserva de emergência', instituicao: 'Banco Exemplo', tipo: 'emergencia', saldo: 640000,
+        dataSaldo: hoje, rendimento: { modo: 'cdi', taxa: 100 }, mesesReserva: 6 },
+      { nome: 'Viagem', instituicao: 'Banco Exemplo', tipo: 'caixinha', saldo: 125000,
+        dataSaldo: hoje, rendimento: { modo: 'cdi', taxa: 105 }, mesesReserva: 6 },
     ],
+    movimentos: [{ investimentoId: '', tipo: 'aporte', valor: 45000, data: jaFoi(1), criadoEm: agora }],
     config: { mesesAFrente: 6, metaGuardarPct: 15, cdiAnual: 13.65 },
   });
+  dados.movimentos[0].investimentoId = dados.investimentos[0].id; // aporte do mês na reserva
+  return dados;
 }
 
 // ---------- Backup (exportar / importar JSON) ----------

@@ -1,94 +1,147 @@
-# 💰 Minhas Finanças — PWA de controle financeiro pessoal
+# 💰 Minhas Finanças
 
-App web instalável (PWA) para **registrar o que entra e o que sai, saber quanto ainda dá para gastar no mês, acompanhar faturas e montar a reserva de emergência e os investimentos**.
-Feito em **HTML, CSS e JavaScript puros**: sem build, sem bibliotecas, sem CDN, e funciona offline.
+**Aplicativo web instalável (PWA) de controle financeiro pessoal**: registra entradas, saídas e compras, calcula quanto ainda dá para gastar no mês, projeta o saldo dia a dia, acompanha dívidas e investimentos e simula decisões antes de tomá-las.
 
-## Telas
+Feito com **HTML, CSS e JavaScript puros**: sem framework, sem etapa de build, sem dependências externas. Funciona **offline** e os dados ficam **só no aparelho**.
 
-| Aba | O que mostra |
+![Telas do aplicativo](docs/capa.png)
+
+> 🔗 **Demo:** `https://SEU-USUARIO.github.io/financas-pwa/` (abra no celular e toque em "Ver com dados de exemplo")
+
+---
+
+## Por que este projeto
+
+Criei este app para resolver um problema real meu: entender **quando** o dinheiro entra e sai, e não só **quanto**. Uma fatura que vence no dia 5 e um salário que cai no último dia útil podem deixar a conta negativa por semanas, mesmo com o mês "fechando no azul". Planilhas mostram o total; este app mostra a **linha do tempo**.
+
+Com o tempo, ele evoluiu de uma projeção de curto prazo para uma ferramenta de **consciência financeira**: orçamento mensal com meta de poupança, avisos antes de cada compra, reserva de emergência e acompanhamento até a quitação das dívidas.
+
+## Funcionalidades
+
+| | |
 |---|---|
-| **Início** | Saldo da conta, orçamento do mês (quanto ainda pode gastar), meta de guardar, alertas, cartões e próximos lançamentos |
-| **Fluxo** | A "planilha" de um mês: entradas, saídas, compras, guardado, orçamento, gráfico do saldo, gastos por categoria e lançamentos |
-| **+** | Registrar compra, guardar dinheiro, nova entrada, nova saída fixa, simular cenário ou atualizar o saldo |
-| **Investir** | Caixinhas e investimentos com rendimento (% do CDI, % a.a. ou % a.m.), reserva de emergência com valor recomendado e meta mensal |
-| **Mais** | Conta, entradas, saídas fixas, cartões, orçamento e metas, lembretes e backup |
+| **Saldo dia a dia** | Projeta o saldo da conta para os próximos meses a partir do saldo real, considerando salário (último dia útil), contas fixas, faturas e parcelas. |
+| **Orçamento do mês** | `livre = renda − saídas fixas − meta de guardar`. Mostra quanto ainda dá para gastar e quanto já foi guardado. |
+| **Registro de compras** | Enquanto você digita o valor, avisa o peso na renda, se cabe no orçamento e se a conta ficaria negativa. |
+| **Fluxo mensal** | A "planilha" do mês: entradas, saídas, compras, gráfico do saldo e gastos por categoria. |
+| **Investimentos** | Caixinhas com rendimento em % do CDI, % a.a. ou % a.m.; reserva de emergência com valor recomendado (6 × gastos fixos) e prazo estimado. |
+| **Dívidas** | Quanto falta em cada cartão e parcelamento, progresso e data em que tudo termina; botão "Paguei" atualiza o saldo. |
+| **Simulador** | *E se eu comprar? E se eu cortar? Qual parcelamento compensa? Quanto guardar para uma meta?* Nada é salvo. |
+| **Lembretes** | Notificações de contas a vencer e exportação para o calendário do celular (`.ics`). |
+| **Privacidade** | Sem servidor e sem login. Backup e restauração por arquivo JSON. Botão de "olho" esconde os valores. |
 
-| **Dívidas** | (pelo **Início** ou por **Mais**) Quanto falta pagar em cada cartão e parcela, progresso, data em que fica livre de dívidas e botão "Paguei" das faturas |
-| **Simulador** | (pelo **+** ou por **Mais**) Comprar, Cortar, Parcelar e Meta: testa ideias sem alterar os dados |
+<p align="center">
+  <img src="docs/compra.png" width="23%" alt="Registro de compra com avisos">
+  <img src="docs/fluxo.png" width="23%" alt="Fluxo do mês">
+  <img src="docs/simulador.png" width="23%" alt="Simulador de parcelamento">
+  <img src="docs/dividas.png" width="23%" alt="Dívidas">
+</p>
 
-O ícone de **olho** no topo esconde todos os valores.
+## Decisões técnicas
 
-## Como os cálculos funcionam
+- **Dinheiro em centavos inteiros.** Em ponto flutuante, `0.1 + 0.2 = 0.30000000000000004`. Todo valor é guardado como inteiro (R$ 12,34 → `1234`) e só é dividido por 100 na hora de exibir.
+- **Datas como texto ISO (`AAAA-MM-DD`) e contas em UTC.** A comparação vira comparação de texto e não há bugs de fuso horário. Meses de 28 a 31 dias e "último dia útil" são tratados explicitamente.
+- **Motor de cálculo separado da interface.** `calculos.js` e `simulacoes.js` não tocam na tela: recebem dados e devolvem números. Isso permite testá-los isoladamente.
+- **Simulações sem efeito colateral.** Cada cenário roda sobre uma cópia profunda (`structuredClone`) dos dados e é comparado com o cenário real.
+- **Matemática financeira.** Parcelas pela Tabela Price, `PMT = PV · i / (1 − (1 + i)^−n)`; conversão de % do CDI anual para taxa mensal composta, `(1 + CDI·p)^(1/12) − 1`; aporte mensal necessário pelo valor futuro de uma série.
+- **Sem dependências.** Gráficos de linha e de rosca desenhados em SVG à mão; ícones SVG próprios. Tudo funciona offline e cabe em poucos arquivos.
+- **PWA.** Service worker com cache offline, manifest, ícones *maskable* e caminhos relativos (compatível com o subcaminho do GitHub Pages).
+- **Migração de dados.** `normalizar()` valida e converte arquivos de versões anteriores, então um backup antigo nunca quebra o app.
+- **Segurança.** Todo texto digitado é escapado antes de ir para o HTML (prevenção de XSS).
 
-- **Saldo da conta:** você informa o saldo real numa data. O app soma os lançamentos seguintes (entradas, saídas fixas, faturas, compras pela conta, dinheiro guardado) e projeta o saldo **dia a dia**.
-- **Orçamento livre do mês** = renda recorrente − saídas fixas recorrentes − meta de guardar (% da renda). As compras registradas (conta e cartão) são descontadas dele.
-- **Compras no cartão** entram no orçamento e na planilha do mês, mas **não** tiram dinheiro da conta (quem tira é a fatura). Por isso as faturas não entram em "gastos por categoria", para não contar duas vezes.
-- **Avisos de compra:** ao digitar o valor, o app mostra o peso na renda, se cabe no orçamento livre e se a conta ficaria negativa.
-- **Reserva de emergência** = meses de reserva (padrão 6) × soma das saídas fixas mensais.
-- **Rendimento:** % do CDI é convertido em taxa mensal com juros compostos: `(1 + CDI × %)^(1/12) − 1`. É estimativa antes de impostos.
-- **Dívidas:** faturas em aberto de cada cartão + saídas com categoria "Parcela". Com mês final, o app conta as parcelas que faltam; a última data de todas é o dia em que você fica livre de dívidas. O botão "Paguei" registra a data do pagamento e tira o valor do saldo da conta.
-- **Simulador:** cada simulação faz uma *cópia* dos dados (`structuredClone`), aplica a mudança na cópia e compara com o cenário real. Parcelas com juros usam a Tabela Price: `parcela = valor × i / (1 − (1 + i)^−n)`. Metas usam o valor futuro com aportes mensais.
-- Todos os valores são **centavos inteiros**, o que evita erros de arredondamento (`0.1 + 0.2 ≠ 0.3`).
+## Arquitetura
 
-## Lembretes
+```mermaid
+flowchart LR
+    A[(localStorage)] -->|carregar| B[dados.js<br/>validação e migração]
+    B --> C[calculos.js<br/>lançamentos, projeção,<br/>orçamento, dívidas]
+    B --> D[simulacoes.js<br/>cópias + comparação]
+    C --> E[ui/*<br/>telas]
+    D --> E
+    E -->|ctx.alterar| B
+    B -->|salvar| A
+```
 
-Um app sem servidor não consegue agendar notificações para o futuro. Por isso:
-1. **Notificação do sistema** quando o app é aberto (e, no Android com o app instalado, em segundo plano quando o Chrome permitir, via *Periodic Background Sync*).
-2. **Adicionar ao calendário:** gera um `.ics` com as contas e alarmes (9h do dia anterior e 9h do dia). Funciona sempre, no Android e no iPhone.
-
-## Estrutura
+Toda alteração passa por uma única função (`ctx.alterar`): copia os dados, aplica a mudança, salva e redesenha. É um fluxo de dados em uma direção só, simples de entender e de depurar.
 
 ```
-index.html            Página única do app
-manifest.json         Configuração de instalação (PWA)
-sw.js                 Service worker: cache offline + lembretes em segundo plano
-css/style.css         Visual (mobile-first, escuro/claro)
-icons/                Ícones do app
+index.html            Página única
+manifest.json         Instalação (PWA)
+sw.js                 Service worker: cache offline e lembretes
+css/style.css         Visual mobile-first, tema escuro e claro
 js/
-  app.js              Ponto de entrada: estado e navegação
-  datas.js            Datas, dias úteis e formatação dd/mm/aaaa
-  dinheiro.js         Centavos <-> R$ 1.234,56
-  dados.js            Formato dos dados, migração, localStorage e backup
-  calculos.js         Motor: lançamentos, projeção, orçamento, investimentos, alertas
-  grafico.js          Gráficos SVG (saldo e rosca)
-  notificacoes.js     Lembretes (notificação e calendário .ics)
-  simulacoes.js       Cálculos do simulador (compra, corte, parcelamento, meta)
-  ui/
-    comum.js          Peças compartilhadas (extrato, modal, campos)
-    icones.js         Ícones SVG e cores das categorias
-    painel.js         Aba Início
-    fluxo.js          Aba Fluxo
-    investimentos.js  Aba Investir
-    compras.js        Registro de compras com avisos de orçamento
-    cadastros.js      Aba Mais + menu do botão "+"
-    simulador.js      Tela do simulador
-    dividas.js        Tela de dívidas e botão "Paguei"
+  app.js              Estado e navegação
+  dados.js            Formato, validação, migração, backup
+  calculos.js         Motor: lançamentos, projeção, orçamento, investimentos, dívidas, alertas
+  simulacoes.js       Cálculos do simulador
+  datas.js            Datas, dias úteis, formatação dd/mm/aaaa
+  dinheiro.js         Centavos ⇄ R$ 1.234,56
+  grafico.js          Gráficos SVG
+  notificacoes.js     Notificações e calendário .ics
+  ui/                 Uma tela por arquivo + peças comuns e ícones
+testes/
+  calculos.test.mjs   Testes automatizados dos cálculos
+docs/                 Imagens deste README (dados fictícios)
 ```
 
-## Publicar no GitHub Pages
+## Modelo de dados
 
-1. Em github.com, clique em **New repository**, dê o nome `financas-pwa`, marque **Public** e clique em **Create repository**.
-2. **Extraia o .zip** (botão direito → Extrair tudo). Na página do repositório, clique em **Add file → Upload files** e **arraste** o conteúdo da pasta extraída, incluindo as pastas. Depois clique em **Commit changes**.
-3. Vá em **Settings → Pages**. Em *Source*, escolha **Deploy from a branch**, branch **main** e pasta **/ (root)**, e clique em **Save**.
-4. Aguarde 1 a 2 minutos. O link fica `https://SEU-USUARIO.github.io/financas-pwa/`.
+Todos os dados ficam num único objeto JSON (o mesmo do backup). Resumo:
 
-## Instalar no celular
+| Coleção | Campos principais |
+|---|---|
+| `conta` | `saldoInicial` (centavos), `dataSaldo` |
+| `eventos` | entradas e saídas: `tipo`, `categoria`, `valor`, `recorrencia` (`unica`, `mensal`, `ultimoDiaUtil`), `inicio`, `fim` |
+| `cartoes` | `faturas[]` (`vencimento`, `valor`, `paga`, `pagaEm`), `parcelamento` |
+| `compras` | `descricao`, `valor`, `data`, `categoria`, `pagamento` (conta ou id do cartão) |
+| `investimentos` | `tipo` (emergência, caixinha, variável), `saldo`, `rendimento` (`modo`, `taxa`) |
+| `movimentos` | aportes e resgates: `investimentoId`, `tipo`, `valor`, `data` |
+| `config` | `metaGuardarPct`, `cdiAnual`, `mesesAFrente`, lembretes |
 
-- **Android (Chrome):** abra o link e toque em **⋮ → Instalar app**.
-- **iPhone (Safari):** abra o link **no Safari** e toque em **Compartilhar → Adicionar à Tela de Início**.
+## Testes
 
-Depois de instalado, vá em **Mais → Backup → Importar** e escolha o seu arquivo de dados.
+Os cálculos têm testes automatizados com o test runner nativo do Node (18+), sem instalar nada:
 
-> No iPhone, o app instalado e o Safari guardam dados **separadamente**. Importe os dados **dentro do app instalado**. As notificações no iPhone só funcionam com o app instalado na tela inicial.
+```
+node --test testes/calculos.test.mjs
+```
 
-## Atualizar o app depois de mudanças
+Cobrem: leitura de valores no formato brasileiro, meses de tamanhos diferentes, último dia útil, projeção do saldo, orçamento, juros compostos, contagem de parcelas, Tabela Price e a garantia de que o simulador não altera os dados.
 
-Sempre que alterar algum arquivo, aumente a `VERSAO` no `sw.js` (`financas-v5` → `financas-v6`). Pode ser preciso fechar e abrir o app duas vezes.
+## Rodar localmente
 
-## Testar no computador
+Módulos JavaScript não funcionam abrindo o `index.html` com duplo clique. Use um servidor local:
 
 ```
 python -m http.server 8000
 ```
 
 Depois acesse `http://localhost:8000`.
+
+## Publicar e instalar
+
+1. Suba os arquivos num repositório público e ative **Settings → Pages → Deploy from a branch → main / (root)**.
+2. **Android (Chrome):** abra o link e toque em **⋮ → Instalar app**.
+3. **iPhone (Safari):** **Compartilhar → Adicionar à Tela de Início**. Importe os dados *dentro* do app instalado, porque Safari e app guardam dados separadamente.
+
+Ao publicar uma nova versão, aumente a constante `VERSAO` no `sw.js` para os celulares baixarem os arquivos novos.
+
+## ⚠️ Privacidade
+
+- Este repositório **não contém dados financeiros reais**. O app abre vazio ou com dados de **exemplo fictícios** (também usados nas imagens deste README).
+- Os dados reais ficam no `localStorage` do aparelho e são importados por arquivo JSON mantido **fora** do repositório.
+- O `.gitignore` bloqueia arquivos de dados, backups e calendários (`dados-*.json`, `financas-backup-*.json`, `*.ics`).
+
+## Aviso
+
+Projeções e rendimentos são **estimativas** baseadas nos números informados pelo usuário (rendimentos antes de impostos). Este app é uma ferramenta de organização, não consultoria financeira.
+
+## Próximos passos
+
+- Exportar o histórico de lançamentos em CSV para análise em Python/pandas ou SQL.
+- Painel de tendências: gastos por categoria ao longo dos meses.
+- Importar extratos bancários (OFX/CSV).
+
+---
+
+Desenvolvido por **João Santos Fonseca** · [LinkedIn](https://www.linkedin.com/in/SEU-PERFIL) · Licença [MIT](LICENSE)

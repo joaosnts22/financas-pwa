@@ -81,7 +81,6 @@ export function formatarDataCurta(iso) {
 
 const NOMES_MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
   'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
-const DIAS_SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 
 /** "2026-11" -> "novembro/2026" */
 export function nomeMes(chaveMes) {
@@ -92,11 +91,6 @@ export function nomeMes(chaveMes) {
 /** "2026-11" -> "novembro" */
 export function nomeMesCurto(chaveMes) {
   return NOMES_MESES[Number(chaveMes.split('-')[1]) - 1];
-}
-
-/** "2026-10-30" -> "sex" */
-export function diaDaSemana(iso) {
-  return DIAS_SEMANA[criarData(iso).getUTCDay()];
 }
 
 /** "2026-10-30" -> "2026-10" */

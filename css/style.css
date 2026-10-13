@@ -105,12 +105,13 @@ main {
 .link-hero { background: none; border: 0; padding: 0; color: #fff; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
 .hero-resumo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
 .resumo-item {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 8px; min-width: 0;
   background: rgb(255 255 255 / 0.1); border-radius: 14px; padding: 10px;
 }
 .resumo-item > span:last-child { display: flex; flex-direction: column; min-width: 0; font-weight: 700; }
 .resumo-item small { font-weight: 500; font-size: 0.72rem; opacity: 0.8; }
-.resumo-icone { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.resumo-item .valor { font-size: 0.95rem; }
+.resumo-icone { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none; }
 .resumo-icone .ico { width: 18px; height: 18px; stroke-width: 2.4; }
 .resumo-icone.entrada { background: rgb(47 208 127 / 0.25); color: #7dffb8; }
 .resumo-icone.saida { background: rgb(255 92 122 / 0.25); color: #ffb0bf; }
