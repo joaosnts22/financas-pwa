@@ -6,11 +6,14 @@
  * tamanho isso é rápido e muito mais simples do que atualizar pedacinhos.
  */
 import { carregar, salvar, dadosExemplo, dadosVazios, lerArquivoJSON } from './dados.js';
-import { projetar } from './calculos.js';
+import { projetar, mesesDisponiveis } from './calculos.js';
 import { hojeISO, chaveMes } from './datas.js';
+import { sincronizarLembretes } from './notificacoes.js';
 import { telaPainel } from './ui/painel.js';
 import { telaFluxo, ligarFluxo } from './ui/fluxo.js';
-import { telaDividas, telaMais, ligarCadastros, abrirMenuRapido } from './ui/cadastros.js';
+import { telaInvestimentos, ligarInvestimentos } from './ui/investimentos.js';
+import { telaMais, ligarMais, abrirMenuRapido, modalAtualizarSaldo } from './ui/cadastros.js';
+import { modalCompra } from './ui/compras.js';
 import { avisar } from './ui/comum.js';
 import { icone } from './ui/icones.js';
 
@@ -18,12 +21,12 @@ const CHAVE_OCULTAR = 'financas-pwa:ocultar';
 
 const TELAS = {
   inicio: { titulo: 'Início', desenhar: telaPainel },
-  fluxo: { titulo: 'Fluxo de caixa', desenhar: telaFluxo, ligar: ligarFluxo },
-  dividas: { titulo: 'Dívidas', desenhar: telaDividas, ligar: ligarCadastros },
-  mais: { titulo: 'Mais', desenhar: telaMais, ligar: ligarCadastros },
+  fluxo: { titulo: 'Fluxo do mês', desenhar: telaFluxo, ligar: ligarFluxo },
+  investir: { titulo: 'Investimentos', desenhar: telaInvestimentos, ligar: ligarInvestimentos },
+  mais: { titulo: 'Mais', desenhar: telaMais, ligar: ligarMais },
 };
-// Nomes antigos de abas (versão 1) continuam funcionando
-const APELIDOS = { painel: 'inicio', dados: 'mais' };
+// Nomes de abas de versões anteriores continuam funcionando
+const APELIDOS = { painel: 'inicio', dados: 'mais', dividas: 'mais' };
 
 const estado = {
   dados: carregar(),
@@ -34,17 +37,17 @@ const estado = {
 
 /** Objeto entregue às telas: dados atuais + funções para alterá-los. */
 function contexto() {
-  const projecao = projetar(estado.dados);
   const hoje = hojeISO();
-  // Mês padrão do Fluxo: o mês de hoje (se estiver dentro da projeção)
-  const meses = projecao.meses.map((m) => m.chave);
+  const projecao = projetar(estado.dados, hoje);
+  const meses = mesesDisponiveis(estado.dados, hoje);
   if (!meses.includes(estado.mesFluxo)) {
-    estado.mesFluxo = meses.includes(chaveMes(hoje)) ? chaveMes(hoje) : meses[0];
+    estado.mesFluxo = meses.includes(chaveMes(hoje)) ? chaveMes(hoje) : meses[meses.length - 1];
   }
   return {
     dados: estado.dados,
     hoje,
     projecao,
+    meses,
     mesFluxo: estado.mesFluxo,
     mudarMes(chave) { estado.mesFluxo = chave; desenhar(); },
     // Copia profunda -> aplica mudança -> salva -> redesenha
@@ -62,11 +65,12 @@ function substituir(novos) {
   estado.dados = novos;
   salvar(novos);
   desenhar();
+  sincronizarLembretes(novos).catch(() => {});
 }
 
 function irPara(aba) {
-  estado.aba = aba;
-  history.replaceState(null, '', '#' + aba);
+  estado.aba = APELIDOS[aba] || aba;
+  history.replaceState(null, '', '#' + estado.aba);
   desenhar();
   window.scrollTo(0, 0);
 }
@@ -99,10 +103,14 @@ function desenhar() {
     ? `<p class="alerta aviso">${icone('info')}<span>Dados de exemplo (fictícios). Importe os seus em <strong>Mais → Backup</strong>.</span></p>`
     : '') + tela.desenhar(ctx);
   tela.ligar?.(div, ctx);
-  // Links internos do tipo "Ver tudo" (data-ir="aba")
+
+  // Cliques que funcionam em qualquer aba
   div.addEventListener('click', (e) => {
     const link = e.target.closest('[data-ir]');
-    if (link) irPara(link.dataset.ir);
+    if (link) { irPara(link.dataset.ir); return; }
+    const compra = e.target.closest('[data-editar-compra]');
+    if (compra) { modalCompra(ctx, ctx.dados.compras.find((c) => c.id === compra.dataset.editarCompra)); return; }
+    if (e.target.closest('[data-acao-global="atualizar-saldo"]')) modalAtualizarSaldo(ctx);
   });
   conteudo.replaceChildren(div);
 }
@@ -114,8 +122,8 @@ function telaBoasVindas() {
   div.innerHTML = `
     <section class="hero">
       <p class="hero-rotulo">Bem-vindo</p>
-      <p class="hero-valor" style="font-size:1.6rem">Seu dinheiro, dia a dia.</p>
-      <p class="hero-sub">Projete o saldo, veja quando a conta aperta e acompanhe as dívidas.
+      <p class="hero-valor" style="font-size:1.6rem">Seu dinheiro, com consciência.</p>
+      <p class="hero-sub">Registre o que entra e o que sai, veja quanto pode gastar e acompanhe o que você guarda.
       Os dados ficam <strong>só neste aparelho</strong>.</p>
     </section>
     <label class="btn btn-primario btn-bloco">${icone('subir')}Importar meus dados (JSON)
@@ -150,17 +158,23 @@ document.getElementById('btn-olho').addEventListener('click', () => {
   desenhar();
 });
 
-// Ícones da barra inferior (ficam no JS para usar o mesmo conjunto de SVGs)
+// Ícones da barra inferior
 document.querySelectorAll('[data-icone]').forEach((el) => { el.innerHTML = icone(el.dataset.icone); });
 
-// Ao voltar para o app num outro dia, "hoje" muda: redesenha
-document.addEventListener('visibilitychange', () => { if (!document.hidden) desenhar(); });
+// Ao voltar para o app (ou num outro dia), redesenha e confere os lembretes
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  desenhar();
+  if (estado.dados) sincronizarLembretes(estado.dados).catch(() => {});
+});
 
 desenhar();
 
-// Service worker = o que faz o app funcionar offline e ser instalável
+// Service worker = o que faz o app funcionar offline, ser instalável e mostrar lembretes
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('Service worker não registrado:', e));
+    navigator.serviceWorker.register('./sw.js')
+      .then(() => { if (estado.dados) sincronizarLembretes(estado.dados).catch(() => {}); })
+      .catch((e) => console.warn('Service worker não registrado:', e));
   });
 }

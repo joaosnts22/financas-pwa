@@ -1,9 +1,8 @@
 /**
  * ui/comum.js — Peças reutilizadas por todas as telas.
  */
-import { formatarBRL, formatarComSinal } from '../dinheiro.js';
-import { formatarData, formatarDataCurta, criarData } from '../datas.js';
-import { CATEGORIAS } from '../calculos.js';
+import { formatarBRL, formatarComSinal, centavosParaTexto, paraCentavos } from '../dinheiro.js';
+import { formatarData, formatarDataCurta, criarData, nomeMesCurto } from '../datas.js';
 import { icone, avatarCategoria } from './icones.js';
 
 /**
@@ -18,68 +17,78 @@ export function esc(texto) {
 }
 
 /**
- * Valor em R$ com classe de cor: negativo em vermelho, positivo em verde.
+ * Valor em R$ com cor: negativo em vermelho, positivo em verde.
  * A classe "valor" também é usada pelo botão de olho para esconder os números.
  */
 export function valorHTML(centavos, { sinal = false, neutro = false } = {}) {
   const classe = neutro ? '' : centavos < 0 ? 'negativo' : centavos > 0 ? 'positivo' : '';
-  const texto = sinal ? formatarComSinal(centavos) : formatarBRL(centavos);
-  return `<span class="valor ${classe}">${texto}</span>`;
+  const t = sinal ? formatarComSinal(centavos) : formatarBRL(centavos);
+  return `<span class="valor ${classe}">${t}</span>`;
 }
 
-/** Valor sem cor (ex.: totais neutros), mas ainda escondível. */
+/** Valor sem cor, mas ainda escondível pelo olho. */
 export function valorNeutro(centavos) {
   return `<span class="valor">${formatarBRL(centavos)}</span>`;
 }
 
 /** Formatadores entregues ao motor de cálculo (para textos de alerta). */
-export const fmt = { valor: formatarBRL, data: formatarData };
+export const fmt = { valor: formatarBRL, data: formatarData, mes: nomeMesCurto };
 
 const DIAS_LONGOS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
-/** "2026-10-30" -> "Sexta, 30/10" (ou "Hoje" / "Amanhã") */
+/** "2026-10-30" -> "Sexta, 30/10" (ou "Hoje", "Amanhã", "Ontem") */
 export function rotuloDia(iso, hoje) {
   const diff = Math.round((criarData(iso) - criarData(hoje)) / 86400000);
   if (diff === 0) return 'Hoje';
   if (diff === 1) return 'Amanhã';
+  if (diff === -1) return 'Ontem';
   return `${DIAS_LONGOS[criarData(iso).getUTCDay()]}, ${formatarDataCurta(iso)}`;
+}
+
+/** Agrupa lançamentos por dia: [{ data, itens: [...] }] */
+export function agruparPorDia(lancamentos) {
+  const grupos = [];
+  for (const l of lancamentos) {
+    let g = grupos[grupos.length - 1];
+    if (!g || g.data !== l.data) grupos.push(g = { data: l.data, itens: [] });
+    g.itens.push(l);
+  }
+  return grupos;
 }
 
 /**
  * Lista de lançamentos agrupada por dia (estilo "extrato" de banco).
- * @param grupos lista de { data, saldo, itens: [...] }
+ * @param saldoDoDia função(data) -> saldo ao fim do dia, ou null para não mostrar
  */
-export function listaExtrato(grupos, hoje, { mostrarSaldo = true } = {}) {
+export function listaExtrato(grupos, hoje, saldoDoDia = () => null) {
   if (!grupos.length) return '<p class="vazio">Nenhum lançamento no período.</p>';
-  return grupos.map((g) => `
+  return grupos.map((g) => {
+    const saldo = saldoDoDia(g.data);
+    return `
     <div class="extrato-dia">
       <div class="extrato-cabecalho">
         <span>${rotuloDia(g.data, hoje)}</span>
-        ${mostrarSaldo ? `<span class="extrato-saldo">saldo ${valorHTML(g.saldo)}</span>` : ''}
+        ${saldo !== null ? `<span class="extrato-saldo">saldo ${valorHTML(saldo)}</span>` : ''}
       </div>
-      <ul class="extrato">
-        ${g.itens.map((it) => itemExtrato(it)).join('')}
-      </ul>
-    </div>`).join('');
+      <ul class="extrato">${g.itens.map(itemExtrato).join('')}</ul>
+    </div>`;
+  }).join('');
 }
 
-/** Uma linha do extrato: ícone da categoria, nome, categoria e valor. */
-export function itemExtrato(it) {
-  const ehInfo = it.tipo === 'info';
-  const categoria = ehInfo ? 'desconto' : it.categoria;
-  const nomeCategoria = ehInfo ? 'Automático do banco' : (CATEGORIAS[it.categoria]?.nome || 'Outro');
-  const valor = ehInfo
-    ? `<span class="valor info">${formatarBRL(it.valor)}</span>`
-    : valorHTML(it.tipo === 'entrada' ? it.valor : -it.valor, { sinal: true });
-  return `
-    <li class="extrato-item ${ehInfo ? 'item-info' : ''}">
-      ${avatarCategoria(categoria)}
-      <span class="extrato-texto">
-        <strong>${esc(it.nome)}</strong>
-        <small>${nomeCategoria}${it.cenario ? ' · <span class="selo">cenário</span>' : ''}</small>
-      </span>
-      ${valor}
-    </li>`;
+/** Uma linha do extrato. Compras são clicáveis (para editar/excluir). */
+export function itemExtrato(l) {
+  const sinal = l.tipo === 'entrada' ? l.valor : -l.valor;
+  const detalhe = [esc(l.categoria), l.cartao ? `no cartão ${esc(l.cartao)}` : ''].filter(Boolean).join(' · ');
+  // Compra no cartão: valor em cinza (não sai da conta agora)
+  const valor = l.afetaConta ? valorHTML(sinal, { sinal: true }) : `<span class="valor apagado">${formatarComSinal(sinal)}</span>`;
+  const conteudo = `
+      ${avatarCategoria(l.categoria, l.tipo)}
+      <span class="extrato-texto"><strong>${esc(l.nome)}</strong><small>${detalhe}</small></span>
+      ${valor}`;
+  if (l.fonte === 'compra') {
+    return `<li><button class="extrato-item item-clicavel" data-editar-compra="${l.id}">${conteudo}</button></li>`;
+  }
+  return `<li class="extrato-item">${conteudo}</li>`;
 }
 
 /** Cabeçalho de seção dentro de um cartão: título + botão opcional à direita. */
@@ -88,14 +97,49 @@ export function cabecalho(titulo, botao = '') {
 }
 
 /** Botão pequeno com ícone (ex.: "Editar"). */
-export function botaoAcao(acao, texto, nomeIcone = 'editar', extra = '') {
-  return `<button class="btn-texto" data-acao="${acao}" ${extra}>${icone(nomeIcone)}${texto}</button>`;
+export function botaoAcao(acao, textoBotao, nomeIcone = 'editar', extra = '') {
+  return `<button class="btn-texto" data-acao="${acao}" ${extra}>${icone(nomeIcone)}${textoBotao}</button>`;
 }
 
+/** Barra de progresso. nivel: 'ok' | 'aviso' | 'perigo' | 'destaque' */
+export function barra(pct, nivel = 'destaque', fina = false) {
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  return `<div class="barra ${fina ? 'fina' : ''}" role="progressbar" aria-valuenow="${p}" aria-valuemin="0" aria-valuemax="100">
+    <div class="barra-preenchida ${nivel}" style="width:${p}%"></div></div>`;
+}
+
+const ICONE_NIVEL = { perigo: 'perigo', aviso: 'alerta', info: 'info', ok: 'ok' };
+
+/** Lista de avisos coloridos (alertas do painel, avisos da compra). */
+export function listaAvisos(avisos) {
+  if (!avisos.length) return '';
+  return `<ul class="alertas">${avisos.map((a) =>
+    `<li class="alerta ${a.nivel}">${icone(ICONE_NIVEL[a.nivel])}<span>${esc(a.texto)}</span></li>`).join('')}</ul>`;
+}
+
+// ---------- Campos de formulário ----------
+
+export const campoValor = (nome, rotulo, centavos, dica = '') => `
+  <label>${rotulo}
+    <input name="${nome}" inputmode="decimal" autocomplete="off" value="${centavos ? centavosParaTexto(centavos) : ''}" placeholder="0,00">
+    ${dica ? `<small>${dica}</small>` : ''}
+  </label>`;
+
+/** Lê um campo de valor em R$ e devolve centavos (ou lança erro). */
+export function lerValor(form, nome, rotulo, { permitirNegativo = false, permitirZero = true } = {}) {
+  const c = paraCentavos(form.elements[nome].value);
+  if (c === null) throw new Error(`Valor inválido em "${rotulo}".`);
+  if (!permitirNegativo && c < 0) throw new Error(`"${rotulo}" não pode ser negativo.`);
+  if (!permitirZero && c === 0) throw new Error(`Informe um valor em "${rotulo}".`);
+  return c;
+}
+
+// ---------- Avisos, modal e confirmação ----------
+
 /** Mensagem rápida no rodapé ("Salvo!", "Importado!"...). */
-export function avisar(texto) {
+export function avisar(mensagem) {
   const el = document.getElementById('toast');
-  el.textContent = texto;
+  el.textContent = mensagem;
   el.classList.add('visivel');
   clearTimeout(avisar.timer);
   avisar.timer = setTimeout(() => el.classList.remove('visivel'), 2500);
@@ -103,10 +147,8 @@ export function avisar(texto) {
 
 /**
  * Abre uma janela (modal) com um formulário.
- * @param titulo   título da janela
- * @param corpo    HTML dos campos
- * @param aoSalvar função(form) — retorne false para manter aberta (ex.: erro)
- * @param aoMontar função(form) opcional — para ligar eventos nos campos
+ * @param aoSalvar  função(form) — lance erro para mostrar mensagem e manter aberta
+ * @param aoMontar  função(form) opcional — para ligar eventos nos campos
  * @param semRodape true = sem botões Cancelar/Salvar (ex.: menu de ações)
  */
 export function abrirModal({ titulo, corpo, aoSalvar, aoMontar, textoSalvar = 'Salvar', semRodape = false }) {
@@ -128,8 +170,7 @@ export function abrirModal({ titulo, corpo, aoSalvar, aoMontar, textoSalvar = 'S
     </form>`;
   const form = dialog.querySelector('form');
   form.querySelectorAll('[data-fechar]').forEach((b) => b.addEventListener('click', () => dialog.close()));
-  // Tocar fora da janela (no fundo escuro) também fecha
-  dialog.onclick = (e) => { if (e.target === dialog) dialog.close(); };
+  dialog.onclick = (e) => { if (e.target === dialog) dialog.close(); }; // tocar fora fecha
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const erro = form.querySelector('.erro');
@@ -144,7 +185,10 @@ export function abrirModal({ titulo, corpo, aoSalvar, aoMontar, textoSalvar = 'S
   dialog.showModal();
 }
 
-/** Pede confirmação simples. */
-export function confirmar(texto) {
-  return window.confirm(texto);
+export function fecharModal() {
+  document.getElementById('modal').close();
+}
+
+export function confirmar(mensagem) {
+  return window.confirm(mensagem);
 }

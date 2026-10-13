@@ -1,23 +1,21 @@
 /**
- * ui/fluxo.js — Fluxo de caixa de UM mês por vez (com setas para trocar),
- * gráfico do período inteiro, saídas por categoria e extrato dia a dia.
+ * ui/fluxo.js — Aba "Fluxo": a "planilha" de um mês por vez.
+ * Resumo, orçamento, gráfico do saldo, gastos por categoria e todos os lançamentos.
  */
-import { CATEGORIAS } from '../calculos.js';
+import { resumoMes, orcamentoMes, saldoNoDia } from '../calculos.js';
 import { formatarBRL } from '../dinheiro.js';
-import { nomeMes, formatarData, formatarDataCurta } from '../datas.js';
+import { nomeMes, formatarData, chaveMes } from '../datas.js';
 import { svgSaldo, svgRosca } from '../grafico.js';
-import { valorHTML, valorNeutro, listaExtrato, cabecalho } from './comum.js';
-import { icone, CORES_CATEGORIA } from './icones.js';
+import { valorHTML, valorNeutro, listaExtrato, agruparPorDia, cabecalho, barra, esc } from './comum.js';
+import { icone, corCategoria } from './icones.js';
 
-export function telaFluxo({ dados, projecao, hoje, mesFluxo }) {
-  const meses = projecao.meses;
-  const i = Math.max(0, meses.findIndex((m) => m.chave === mesFluxo));
-  const m = meses[i];
-  const [nome, ano] = nomeMes(m.chave).split('/');
-
-  const grupos = m.dias
-    .filter((d) => d.itens.length)
-    .map((d) => ({ data: d.data, saldo: d.saldo, itens: d.itens }));
+export function telaFluxo({ dados, projecao, hoje, mesFluxo, meses }) {
+  const i = Math.max(0, meses.indexOf(mesFluxo));
+  const chave = meses[i];
+  const [nome, ano] = nomeMes(chave).split('/');
+  const r = resumoMes(dados, projecao, chave);
+  const orc = orcamentoMes(dados, chave);
+  const passado = chave < chaveMes(hoje);
 
   return `
     <div class="seletor-mes">
@@ -28,49 +26,63 @@ export function telaFluxo({ dados, projecao, hoje, mesFluxo }) {
 
     <section class="cartao">
       <div class="grade-2">
-        <div class="bloco"><small>Saldo no início</small>${valorHTML(m.saldoInicio)}</div>
-        <div class="bloco"><small>Saldo no fim</small>${valorHTML(m.saldoFim)}</div>
-        <div class="bloco"><small>Entradas</small><span class="valor positivo">${formatarBRL(m.entradas)}</span></div>
-        <div class="bloco"><small>Saídas</small><span class="valor negativo">${formatarBRL(m.saidas)}</span></div>
+        <div class="bloco"><small>Entradas</small><span class="valor positivo">${formatarBRL(r.entradas)}</span></div>
+        <div class="bloco"><small>Saídas da conta</small><span class="valor negativo">${formatarBRL(r.saidas)}</span></div>
+        <div class="bloco"><small>Compras${r.comprasCartao ? ' (com cartão)' : ''}</small>${valorNeutro(r.compras)}</div>
+        <div class="bloco"><small>Guardado</small><span class="valor ${r.guardado > 0 ? 'positivo' : ''}">${formatarBRL(r.guardado)}</span></div>
       </div>
-      <div class="pior-momento ${m.minimo.saldo < 0 ? 'ruim' : ''}">
-        ${icone(m.minimo.saldo < 0 ? 'alerta' : 'info')}
-        <span>Pior momento: ${valorHTML(m.minimo.saldo)} em ${formatarDataCurta(m.minimo.data)}${m.diasNegativos ? ` · ${m.diasNegativos} dia(s) no cheque especial` : ''}</span>
-      </div>
-      ${m.estouraLimite ? `<p class="alerta perigo">${icone('perigo')}<span>O saldo passa do limite do cheque (${formatarBRL(dados.cheque.limite)}) neste mês.</span></p>` : ''}
+      ${r.saldoFim !== null ? `
+      <div class="linha-valores mt">
+        <span><small>${r.saldoInicioData ? `Saldo em ${formatarData(r.saldoInicioData)}` : 'Saldo no início'}</small>${r.saldoInicio !== null ? valorHTML(r.saldoInicio) : '—'}</span>
+        <span class="direita"><small>${passado ? 'Saldo no fim' : 'Saldo previsto no fim'}</small>${valorHTML(r.saldoFim)}</span>
+      </div>` : '<p class="secundario">Saldo da conta não disponível para meses antes do saldo informado.</p>'}
     </section>
 
+    ${orc.renda > 0 ? `
     <section class="cartao">
-      ${cabecalho('Saldo projetado')}
-      ${svgSaldo(projecao.dias, dados.cheque.limite, hoje, m.chave)}
-      <p class="legenda"><span class="leg pos"></span>positivo <span class="leg neg"></span>cheque especial
-        <span class="leg lim"></span>limite <span class="leg hoje"></span>hoje <span class="leg sel"></span>mês selecionado</p>
-    </section>
+      ${cabecalho('Orçamento do mês')}
+      <ul class="lista-simples">
+        <li><span>Renda mensal</span>${valorHTML(orc.renda)}</li>
+        <li><span>Saídas fixas</span>${valorHTML(-orc.fixas)}</li>
+        <li><span>Meta de guardar (${String(dados.config.metaGuardarPct).replace('.', ',')}%)</span>${valorHTML(-orc.meta)}</li>
+        <li class="total"><span>Livre para gastar</span>${valorHTML(orc.livre)}</li>
+        <li><span>Compras do mês</span>${valorHTML(-orc.gasto)}</li>
+        <li class="total"><span>${orc.restante >= 0 ? 'Sobra' : 'Passou'}</span>${valorHTML(orc.restante)}</li>
+      </ul>
+      ${barra(orc.livre > 0 ? (orc.gasto / orc.livre) * 100 : 100, orc.gasto > orc.livre ? 'perigo' : 'ok', true)}
+    </section>` : ''}
 
-    ${cartaoCategorias(m)}
+    ${projecao.dias.length > 1 ? `
+    <section class="cartao">
+      ${cabecalho('Saldo da conta')}
+      ${svgSaldo(projecao.dias, hoje, chave)}
+      <p class="legenda"><span class="leg pos"></span>positivo <span class="leg neg"></span>negativo
+        <span class="leg hoje"></span>hoje <span class="leg sel"></span>mês selecionado</p>
+    </section>` : ''}
+
+    ${cartaoCategorias(r)}
 
     <section class="cartao">
       ${cabecalho('Lançamentos do mês')}
-      ${listaExtrato(grupos, hoje)}
-      ${m.descontoCheque ? `<p class="secundario">O desconto automático (${formatarBRL(m.descontoCheque)}) já está dentro do saldo: o salário entra e cobre o negativo.</p>` : ''}
+      ${listaExtrato(agruparPorDia(r.lancamentos), hoje, (d) => (d >= projecao.inicio ? saldoNoDia(projecao, d) : null))}
+      ${r.comprasCartao ? '<p class="dica">Valores em cinza: compras no cartão. Elas saem da conta depois, na fatura.</p>' : ''}
     </section>
 
-    <p class="nota">${icone('escudo')} Valores estimados. Ponto de partida: saldo informado em ${formatarData(projecao.inicio)}.</p>
+    <p class="nota">${icone('escudo')}Valores futuros são estimativas. Toque numa compra para editar.</p>
   `;
 }
 
-/** Rosca com as saídas do mês por categoria + legenda com valor e %. */
-function cartaoCategorias(m) {
-  const fatias = Object.keys(CATEGORIAS)
-    .filter((cat) => CATEGORIAS[cat].tipo === 'saida' && m.porCategoria[cat])
-    .map((cat) => ({ cat, valor: m.porCategoria[cat], cor: CORES_CATEGORIA[cat] }))
+/** Rosca de gastos por categoria (despesas + compras; faturas e investimentos ficam de fora). */
+function cartaoCategorias(r) {
+  const fatias = Object.entries(r.consumo)
+    .filter(([cat]) => cat !== 'Investimento')
+    .map(([cat, valor]) => ({ cat, valor, cor: corCategoria(cat) }))
     .sort((a, b) => b.valor - a.valor);
   if (!fatias.length) return '';
   const total = fatias.reduce((s, f) => s + f.valor, 0);
-
   return `
     <section class="cartao">
-      ${cabecalho('Saídas por categoria')}
+      ${cabecalho('Gastos por categoria')}
       <div class="categorias">
         <div class="rosca-caixa">
           ${svgRosca(fatias)}
@@ -78,23 +90,21 @@ function cartaoCategorias(m) {
         </div>
         <ul class="legenda-categorias">
           ${fatias.map((f) => `
-            <li>
-              <span class="ponto" style="background:${f.cor}"></span>
-              <span class="leg-nome">${CATEGORIAS[f.cat].nome}<small>${Math.round((f.valor / total) * 100)}%</small></span>
-              ${valorNeutro(f.valor)}
-            </li>`).join('')}
+            <li><span class="ponto" style="background:${f.cor}"></span>
+              <span class="leg-nome">${esc(f.cat)}<small>${Math.round((f.valor / total) * 100)}%</small></span>
+              ${valorNeutro(f.valor)}</li>`).join('')}
         </ul>
       </div>
+      <p class="dica">Faturas não entram aqui: as compras no cartão já contam quando você as registra.</p>
     </section>`;
 }
 
-/** Liga as setas de troca de mês. */
+/** Setas de troca de mês. (O toque numa compra é tratado em app.js, para todas as abas.) */
 export function ligarFluxo(raiz, ctx) {
   raiz.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-mes]');
-    if (!b || b.disabled) return;
-    const meses = ctx.projecao.meses.map((m) => m.chave);
-    const i = Math.max(0, meses.indexOf(ctx.mesFluxo)) + Number(b.dataset.mes);
-    if (meses[i]) ctx.mudarMes(meses[i]);
+    const seta = e.target.closest('[data-mes]');
+    if (!seta || seta.disabled) return;
+    const i = Math.max(0, ctx.meses.indexOf(ctx.mesFluxo)) + Number(seta.dataset.mes);
+    if (ctx.meses[i]) ctx.mudarMes(ctx.meses[i]);
   });
 }

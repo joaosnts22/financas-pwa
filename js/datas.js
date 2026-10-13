@@ -45,19 +45,19 @@ export function diasNoMes(ano, mes) {
   return new Date(Date.UTC(ano, mes, 0)).getUTCDate();
 }
 
-/** Dia útil = não é sábado, domingo nem feriado cadastrado. */
-export function ehDiaUtil(iso, feriados = []) {
+/** Dia útil = segunda a sexta. */
+export function ehDiaUtil(iso) {
   const diaSemana = criarData(iso).getUTCDay(); // 0 = domingo, 6 = sábado
-  return diaSemana !== 0 && diaSemana !== 6 && !feriados.includes(iso);
+  return diaSemana !== 0 && diaSemana !== 6;
 }
 
 /** Último dia útil do mês: começa no último dia e volta até achar um dia útil. */
-export function ultimoDiaUtil(ano, mes, feriados = []) {
+export function ultimoDiaUtil(ano, mes) {
   for (let dia = diasNoMes(ano, mes); dia >= 1; dia--) {
     const iso = montarISO(ano, mes, dia);
-    if (ehDiaUtil(iso, feriados)) return iso;
+    if (ehDiaUtil(iso)) return iso;
   }
-  return montarISO(ano, mes, diasNoMes(ano, mes)); // nunca deveria chegar aqui
+  return montarISO(ano, mes, diasNoMes(ano, mes));
 }
 
 /** Data de hoje no fuso do aparelho, em ISO. */
@@ -79,15 +79,6 @@ export function formatarDataCurta(iso) {
   return `${d}/${m}`;
 }
 
-/** "30/10/2026" -> "2026-10-30" (ou null se inválida) */
-export function lerDataBR(texto) {
-  const m = String(texto).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (!m) return null;
-  const [, d, mes, a] = m.map(Number);
-  if (mes < 1 || mes > 12 || d < 1 || d > diasNoMes(a, mes)) return null;
-  return montarISO(a, mes, d);
-}
-
 const NOMES_MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
   'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 const DIAS_SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
@@ -96,6 +87,11 @@ const DIAS_SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 export function nomeMes(chaveMes) {
   const [a, m] = chaveMes.split('-').map(Number);
   return `${NOMES_MESES[m - 1]}/${a}`;
+}
+
+/** "2026-11" -> "novembro" */
+export function nomeMesCurto(chaveMes) {
+  return NOMES_MESES[Number(chaveMes.split('-')[1]) - 1];
 }
 
 /** "2026-10-30" -> "sex" */
@@ -122,7 +118,10 @@ export function listaMeses(inicio, fim) {
   return meses;
 }
 
-/** Último dia do mês de uma chave "AAAA-MM", em ISO. */
+/** Primeiro e último dia de uma chave "AAAA-MM", em ISO. */
+export function inicioDoMes(chave) {
+  return `${chave}-01`;
+}
 export function fimDoMes(chave) {
   const [a, m] = chave.split('-').map(Number);
   return montarISO(a, m, diasNoMes(a, m));

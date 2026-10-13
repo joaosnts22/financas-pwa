@@ -14,7 +14,7 @@ export function formatarBRL(centavos) {
   return formatador.format(centavos / 100);
 }
 
-/** 123456 -> "+R$ 1.234,56" / "-R$ 1.234,56" (útil para lançamentos) */
+/** 123456 -> "+R$ 1.234,56" / "−R$ 1.234,56" (útil para lançamentos) */
 export function formatarComSinal(centavos) {
   const sinal = centavos > 0 ? '+' : centavos < 0 ? '−' : '';
   return sinal + formatador.format(Math.abs(centavos) / 100);
@@ -45,4 +45,17 @@ export function paraCentavos(texto) {
   const numero = Number(s);
   if (!Number.isFinite(numero)) return null;
   return Math.round(numero * 100);
+}
+
+/** Lê uma porcentagem digitada ("13,65" ou "13.65") e devolve número (13.65) ou null. */
+export function paraNumero(texto) {
+  const s = String(texto ?? '').trim().replace('%', '').replace(',', '.');
+  if (s === '') return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** 13.65 -> "13,65" */
+export function numeroParaTexto(n) {
+  return String(n).replace('.', ',');
 }

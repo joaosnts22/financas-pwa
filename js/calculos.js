@@ -1,291 +1,349 @@
 /**
- * calculos.js — O "motor" da projeção. Não mexe na tela, só faz contas.
+ * calculos.js — O "motor" do app. Não mexe na tela, só faz contas.
  *
- * Ideia central: simular a conta corrente DIA A DIA.
- *  - Saldo positivo  = dinheiro na conta.
- *  - Saldo negativo  = você está usando o cheque especial.
- *  - Quando entra o salário e a conta está negativa, o banco "desconta" o
- *    cheque especial automaticamente. Numa conta única isso acontece sozinho:
- *    o salário entra e cobre o negativo. Nós apenas MOSTRAMOS esse desconto
- *    e cobramos o IOF estimado (e juros, se houver taxa cadastrada).
+ * Ideias centrais:
+ * 1. LANÇAMENTOS: tudo que entra ou sai (salário, aluguel, fatura, compra,
+ *    dinheiro guardado) vira uma lista de lançamentos com data e valor.
+ * 2. PROJEÇÃO: a partir do saldo real informado, simulamos a conta DIA A DIA.
+ *    Saldo negativo aparece em vermelho, e só.
+ * 3. ORÇAMENTO: quanto sobra por mês para gastos do dia a dia depois das
+ *    despesas fixas e da meta de guardar dinheiro.
  *
  * Tudo em centavos (inteiros). Ver dinheiro.js.
  */
 import {
-  somarDias, diferencaDias, diasNoMes, montarISO, ultimoDiaUtil,
-  listaMeses, chaveMes, fimDoMes,
+  somarDias, diasNoMes, montarISO, ultimoDiaUtil, listaMeses, chaveMes,
+  inicioDoMes, fimDoMes, somarMeses, diferencaDias,
 } from './datas.js';
 
-export const CATEGORIAS = {
-  salario: { nome: 'Salário', tipo: 'entrada' },
-  ajuda: { nome: 'Ajuda de custo', tipo: 'entrada' },
-  venda: { nome: 'Venda', tipo: 'entrada' },
-  extra: { nome: 'Horas extras / extra', tipo: 'entrada' },
-  outro_entrada: { nome: 'Outra entrada', tipo: 'entrada' },
-  fixa: { nome: 'Despesa fixa', tipo: 'saida' },
-  fatura: { nome: 'Fatura de cartão', tipo: 'saida' },
-  parcela: { nome: 'Parcela', tipo: 'saida' },
-  gasto: { nome: 'Gastos gerais', tipo: 'saida' },
-  encargo: { nome: 'IOF / juros', tipo: 'saida' },
-  outro: { nome: 'Outra saída', tipo: 'saida' },
-};
+/** Sugestões que aparecem ao digitar a categoria de uma compra. */
+export const SUGESTOES_COMPRA = ['Mercado', 'Alimentação', 'Pets', 'Casa', 'Transporte', 'Saúde', 'Lazer', 'Assinaturas', 'Roupas', 'Presentes', 'Educação', 'Outros'];
+/** Opções para saídas fixas. */
+export const CATEGORIAS_SAIDA = ['Despesa fixa', 'Parcela', 'Gastos gerais', 'Outra saída'];
+
+const ehRecorrente = (ev) => ev.recorrencia !== 'unica';
+
+/** Nome curto de um cartão pelo id (para compras no cartão). */
+export function nomeCartao(dados, id) {
+  return dados.cartoes.find((c) => c.id === id)?.nome || 'Cartão';
+}
 
 /**
- * Transforma os eventos cadastrados (que podem ser recorrentes) em uma lista
- * de lançamentos concretos, cada um com uma data, dentro do período [inicio, fim].
+ * Transforma tudo o que foi cadastrado em lançamentos com data, no período [inicio, fim].
+ * Cada lançamento: { data, nome, tipo: 'entrada'|'saida', categoria, valor,
+ *                    fonte: 'evento'|'fatura'|'compra'|'movimento', afetaConta, recorrente, id }
+ *  - afetaConta = false para compras no cartão (o dinheiro sai depois, na fatura).
  */
 export function gerarLancamentos(dados, inicio, fim) {
   const lista = [];
-  const feriados = dados.config.feriados;
   const meses = listaMeses(chaveMes(inicio), chaveMes(fim));
+  const dentro = (data) => data >= inicio && data <= fim;
 
+  // 1) Entradas e saídas cadastradas (únicas ou recorrentes)
   for (const ev of dados.eventos) {
     if (!ev.ativo) continue;
-    const base = { nome: ev.nome, tipo: ev.tipo, categoria: ev.categoria, valor: ev.valor, origem: ev.id, cenario: ev.cenario };
-
-    if (ev.recorrencia === 'unica') {
-      if (ev.data >= inicio && ev.data <= fim) lista.push({ ...base, data: ev.data });
+    const base = { nome: ev.nome, tipo: ev.tipo, categoria: ev.categoria, valor: ev.valor,
+      fonte: 'evento', afetaConta: true, recorrente: ehRecorrente(ev), id: ev.id };
+    if (!ehRecorrente(ev)) {
+      if (dentro(ev.data)) lista.push({ ...base, data: ev.data });
       continue;
     }
     for (const mes of meses) {
-      if (mes < ev.inicio) continue;
-      if (ev.fim && mes > ev.fim) continue;
+      if (mes < ev.inicio || (ev.fim && mes > ev.fim)) continue;
       const [a, m] = mes.split('-').map(Number);
       const data = ev.recorrencia === 'mensal'
         ? montarISO(a, m, Math.min(ev.dia, diasNoMes(a, m))) // dia 31 em mês de 30 dias -> dia 30
-        : ultimoDiaUtil(a, m, feriados);
-      if (data >= inicio && data <= fim) lista.push({ ...base, data });
+        : ultimoDiaUtil(a, m);
+      if (dentro(data)) lista.push({ ...base, data });
     }
   }
 
-  // Faturas de cartão ainda não pagas viram saídas na data de pagamento
+  // 2) Faturas de cartão ainda não pagas
   for (const cartao of dados.cartoes) {
     for (const f of cartao.faturas) {
-      if (f.paga || f.vencimento < inicio || f.vencimento > fim) continue;
-      lista.push({
-        nome: `Fatura ${cartao.nome}`, tipo: 'saida', categoria: 'fatura',
-        valor: f.valor, data: f.vencimento, origem: f.id,
-      });
+      if (f.paga || !dentro(f.vencimento)) continue;
+      lista.push({ nome: `Fatura ${cartao.nome}`, tipo: 'saida', categoria: 'Fatura de cartão', valor: f.valor,
+        data: f.vencimento, fonte: 'fatura', afetaConta: true, id: f.id });
     }
   }
 
-  // Ordena por data; no mesmo dia, entradas primeiro (o salário cai antes das contas)
+  // 3) Compras registradas
+  for (const c of dados.compras) {
+    if (!dentro(c.data)) continue;
+    const noCartao = c.pagamento !== 'conta';
+    lista.push({ nome: c.descricao, tipo: 'saida', categoria: c.categoria, valor: c.valor, data: c.data,
+      fonte: 'compra', afetaConta: !noCartao, cartao: noCartao ? nomeCartao(dados, c.pagamento) : null, id: c.id });
+  }
+
+  // 4) Dinheiro guardado (aporte) ou resgatado de investimentos
+  for (const mv of dados.movimentos) {
+    if (!dentro(mv.data)) continue;
+    const inv = dados.investimentos.find((i) => i.id === mv.investimentoId);
+    const nome = inv ? inv.nome : 'Investimento';
+    lista.push({ nome: mv.tipo === 'aporte' ? `Guardado em ${nome}` : `Resgate de ${nome}`,
+      tipo: mv.tipo === 'aporte' ? 'saida' : 'entrada', categoria: 'Investimento', valor: mv.valor,
+      data: mv.data, fonte: 'movimento', afetaConta: true, id: mv.id });
+  }
+
+  // Ordena por data; no mesmo dia, entradas primeiro
   return lista.sort((x, y) =>
     x.data.localeCompare(y.data) || (x.tipo === 'entrada' ? -1 : 1) - (y.tipo === 'entrada' ? -1 : 1));
 }
 
+/** Último mês que o app projeta: hoje + "meses à frente" das configurações. */
+export function mesFinal(dados, hoje) {
+  const alvo = somarMeses(chaveMes(hoje), dados.config.mesesAFrente);
+  const minimo = chaveMes(dados.conta.dataSaldo);
+  return alvo > minimo ? alvo : minimo;
+}
+
 /**
- * Projeta o saldo dia a dia, do dia do saldo informado até o fim do mês final.
+ * Projeta o saldo da conta dia a dia, do dia do saldo informado até o mês final.
  * O saldo informado é considerado "fechado" naquele dia: a simulação começa
  * no dia SEGUINTE (o que estava marcado para o próprio dia já está no saldo).
  */
-export function projetar(dados) {
-  const { conta, cheque } = dados;
-  const inicio = conta.dataSaldo;
-  const fim = fimDoMes(dados.config.mesFinal);
-  const lancamentos = gerarLancamentos(dados, somarDias(inicio, 1), fim);
+export function projetar(dados, hoje) {
+  const inicio = dados.conta.dataSaldo;
+  const fim = fimDoMes(mesFinal(dados, hoje));
+  const lancamentos = gerarLancamentos(dados, somarDias(inicio, 1), fim).filter((l) => l.afetaConta);
 
-  // Agrupa lançamentos por data para acesso rápido
   const porData = new Map();
   for (const l of lancamentos) {
     if (!porData.has(l.data)) porData.set(l.data, []);
     porData.get(l.data).push(l);
   }
 
-  let saldo = conta.saldoInicial;
-  let negativoDesde = saldo < 0 ? (cheque.negativoDesde || inicio) : null;
-  let jurosAcumulados = 0;
-  const dias = [{
-    data: inicio, saldo, itens: [], inicial: true,
-    negativoDesde, diasNegativo: negativoDesde ? diferencaDias(negativoDesde, inicio) : 0,
-  }];
-
+  let saldo = dados.conta.saldoInicial;
+  const dias = [{ data: inicio, saldo, itens: [], inicial: true }];
   for (let data = somarDias(inicio, 1); data <= fim; data = somarDias(data, 1)) {
-    const itens = [];
-
-    for (const l of porData.get(data) || []) {
-      if (l.tipo === 'entrada') {
-        const devedorAntes = saldo < 0 ? -saldo : 0;
-        saldo += l.valor;
-        itens.push(l);
-
-        // Regra do banco: salário entrou com conta negativa => desconto automático
-        if (l.categoria === 'salario' && devedorAntes > 0) {
-          itens.push({
-            nome: 'Desconto automático do cheque especial', tipo: 'info', categoria: 'info',
-            valor: Math.min(devedorAntes, l.valor), data,
-          });
-          const encargos = cheque.iof + jurosAcumulados;
-          if (encargos > 0) {
-            saldo -= encargos;
-            itens.push({
-              nome: jurosAcumulados > 0 ? 'IOF + juros do cheque especial (estimado)' : 'IOF do cheque especial (estimado)',
-              tipo: 'saida', categoria: 'encargo', valor: encargos, data, automatico: true,
-            });
-          }
-          jurosAcumulados = 0;
-        }
-      } else {
-        saldo -= l.valor;
-        itens.push(l);
-      }
-    }
-
-    // Controle do prazo sem juros
-    let diasNegativo = 0;
-    if (saldo < 0) {
-      if (!negativoDesde) negativoDesde = data;
-      diasNegativo = diferencaDias(negativoDesde, data);
-      // Juros (só se você cadastrar a taxa): proporcional por dia após o prazo
-      if (diasNegativo > cheque.diasSemJuros && cheque.taxaJurosMes > 0) {
-        jurosAcumulados += Math.round((-saldo * cheque.taxaJurosMes) / 100 / 30);
-      }
-    } else {
-      negativoDesde = null; // quitou: o prazo sem juros recomeça na próxima vez
-    }
-
-    dias.push({ data, saldo, itens, negativoDesde, diasNegativo });
+    const itens = porData.get(data) || [];
+    for (const l of itens) saldo += l.tipo === 'entrada' ? l.valor : -l.valor;
+    dias.push({ data, saldo, itens });
   }
-
-  return { inicio, fim, dias, meses: resumirMeses(dias, dados), lancamentos };
+  return { inicio, fim, dias };
 }
 
-/** Agrupa a simulação diária em um resumo por mês. */
-function resumirMeses(dias, dados) {
-  const limite = dados.cheque.limite;
-  const meses = [];
-  let saldoAnterior = dias[0].saldo;
-
-  for (const chave of listaMeses(chaveMes(dias[0].data), dados.config.mesFinal)) {
-    const doMes = dias.filter((d) => chaveMes(d.data) === chave);
-    if (!doMes.length) continue;
-
-    const resumo = {
-      chave,
-      saldoInicio: doMes[0].inicial ? doMes[0].saldo : saldoAnterior,
-      saldoFim: doMes[doMes.length - 1].saldo,
-      entradas: 0,
-      saidas: 0,
-      porCategoria: {},
-      descontoCheque: 0,
-      minimo: doMes[0], // dia de menor saldo
-      diasNegativos: 0,
-      estouraLimite: false,
-      dias: doMes,
-    };
-
-    for (const d of doMes) {
-      if (d.saldo < resumo.minimo.saldo) resumo.minimo = d;
-      if (d.saldo < 0) resumo.diasNegativos++;
-      if (d.saldo < -limite) resumo.estouraLimite = true;
-      for (const it of d.itens) {
-        if (it.tipo === 'info') { resumo.descontoCheque += it.valor; continue; }
-        if (it.tipo === 'entrada') resumo.entradas += it.valor;
-        else resumo.saidas += it.valor;
-        resumo.porCategoria[it.categoria] = (resumo.porCategoria[it.categoria] || 0) + it.valor;
-      }
-    }
-    meses.push(resumo);
-    saldoAnterior = resumo.saldoFim;
-  }
-  return meses;
+/** Saldo projetado num dia (ou null se for antes da data do saldo informado). */
+export function saldoNoDia(projecao, data) {
+  if (data < projecao.inicio) return null;
+  return (projecao.dias.find((d) => d.data === data) || projecao.dias[projecao.dias.length - 1]).saldo;
 }
 
-/** Retorna o dia da projeção correspondente a "hoje" (ou o mais próximo). */
-export function diaAtual(projecao, hoje) {
-  const { dias } = projecao;
-  if (hoje <= dias[0].data) return dias[0];
-  return dias.find((d) => d.data === hoje) || dias[dias.length - 1];
-}
-
-/** Próximos lançamentos a partir de hoje (exclusive). */
-export function proximosEventos(projecao, hoje, quantidade = 8) {
-  const lista = [];
-  for (const d of projecao.dias) {
-    if (d.data <= hoje) continue;
-    for (const it of d.itens) lista.push({ ...it, saldoDepois: d.saldo });
-    if (lista.length >= quantidade) break;
-  }
-  return lista.slice(0, quantidade);
-}
-
-/** Dívidas: cheque especial em uso hoje + faturas em aberto de cada cartão. */
-export function resumoDividas(dados, projecao, hoje) {
-  const atual = diaAtual(projecao, hoje);
-  const cheque = Math.max(0, -atual.saldo);
-  const cartoes = dados.cartoes.map((c) => {
-    const abertas = c.faturas.filter((f) => !f.paga && f.vencimento > atual.data);
-    const p = c.parcelamento;
-    return {
-      nome: c.nome,
-      emAberto: abertas.reduce((s, f) => s + f.valor, 0),
-      quantidadeFaturas: abertas.length,
-      parcelasRestantes: p ? Math.max(0, p.parcelas - p.pagas) : 0,
-      valorParcela: p ? p.valor : 0,
-    };
-  });
-  return { cheque, cartoes, total: cheque + cartoes.reduce((s, c) => s + c.emAberto, 0) };
+/** Todos os meses que o app consegue mostrar: do primeiro registro até o mês final. */
+export function mesesDisponiveis(dados, hoje) {
+  const datas = [dados.conta.dataSaldo, ...dados.compras.map((c) => c.data), ...dados.movimentos.map((m) => m.data)];
+  const primeiro = chaveMes(datas.sort()[0]);
+  return listaMeses(primeiro, mesFinal(dados, hoje));
 }
 
 /**
- * Alertas: lista de { nivel: 'perigo' | 'aviso' | 'info', texto }.
- * Recebe funções de formatação para não depender da interface.
+ * Resumo de um mês ("planilha" do mês).
+ * - entradas/saidas: o que entra e sai da CONTA (sem contar dinheiro guardado)
+ * - compras: tudo que você registrou como compra (conta + cartão)
+ * - guardado: aportes − resgates
+ * - consumo: gastos por categoria (despesas + compras). Faturas ficam de fora,
+ *   porque as compras no cartão já são contadas quando você as registra.
  */
+export function resumoMes(dados, projecao, chave) {
+  const lancamentos = gerarLancamentos(dados, inicioDoMes(chave), fimDoMes(chave));
+  const r = { chave, lancamentos, entradas: 0, saidas: 0, compras: 0, comprasCartao: 0, guardado: 0, consumo: {} };
+
+  for (const l of lancamentos) {
+    if (l.fonte === 'movimento') { r.guardado += l.tipo === 'saida' ? l.valor : -l.valor; continue; }
+    if (l.fonte === 'compra') { r.compras += l.valor; if (!l.afetaConta) r.comprasCartao += l.valor; }
+    if (l.afetaConta) {
+      if (l.tipo === 'entrada') r.entradas += l.valor; else r.saidas += l.valor;
+    }
+    if (l.tipo === 'saida' && l.fonte !== 'fatura') r.consumo[l.categoria] = (r.consumo[l.categoria] || 0) + l.valor;
+  }
+
+  // Saldo no início/fim do mês, quando a projeção cobre esse período
+  const ini = inicioDoMes(chave);
+  const fim = fimDoMes(chave);
+  r.saldoFim = fim >= projecao.inicio ? saldoNoDia(projecao, fim) : null;
+  if (ini > projecao.inicio) r.saldoInicio = saldoNoDia(projecao, somarDias(ini, -1));
+  else if (chaveMes(projecao.inicio) === chave) { r.saldoInicio = projecao.dias[0].saldo; r.saldoInicioData = projecao.inicio; }
+  else r.saldoInicio = null;
+  return r;
+}
+
+/**
+ * Orçamento do mês:
+ *   renda   = entradas que se repetem todo mês (salário, ajuda...)
+ *   fixas   = saídas que se repetem todo mês (aluguel, contas...)
+ *   meta    = % da renda que você quer guardar
+ *   livre   = renda − fixas − meta   -> quanto dá para gastar no dia a dia
+ *   gasto   = compras registradas no mês (conta + cartão)
+ */
+export function orcamentoMes(dados, chave) {
+  const lancamentos = gerarLancamentos(dados, inicioDoMes(chave), fimDoMes(chave));
+  let renda = 0;
+  let fixas = 0;
+  let gasto = 0;
+  let guardado = 0;
+  for (const l of lancamentos) {
+    if (l.fonte === 'evento' && l.recorrente) {
+      if (l.tipo === 'entrada') renda += l.valor; else fixas += l.valor;
+    }
+    if (l.fonte === 'compra') gasto += l.valor;
+    if (l.fonte === 'movimento') guardado += l.tipo === 'saida' ? l.valor : -l.valor;
+  }
+  const meta = Math.round((renda * dados.config.metaGuardarPct) / 100);
+  const livre = renda - fixas - meta;
+  return { chave, renda, fixas, meta, livre, gasto, restante: livre - gasto, guardado };
+}
+
+/** Soma mensal das saídas fixas (recorrentes) ativas: base da reserva de emergência. */
+export function gastosFixosMensais(dados, hoje) {
+  const mesAtual = chaveMes(hoje);
+  return dados.eventos
+    .filter((e) => e.ativo && e.tipo === 'saida' && ehRecorrente(e) && (!e.fim || e.fim >= mesAtual))
+    .reduce((s, e) => s + e.valor, 0);
+}
+
+/**
+ * Avalia uma compra ANTES de salvar (avisos aparecem enquanto você digita).
+ * Retorna lista de { nivel: 'ok'|'aviso'|'perigo'|'info', texto }.
+ */
+export function avaliarCompra(dados, hoje, compra, fmt, idIgnorar = null) {
+  const msgs = [];
+  if (!compra.valor || compra.valor <= 0) return msgs;
+  const chave = chaveMes(compra.data);
+  // Orçamento sem a própria compra (se estiver editando)
+  const semEla = { ...dados, compras: dados.compras.filter((c) => c.id !== idIgnorar) };
+  const orc = orcamentoMes(semEla, chave);
+  const mes = fmt.mes(chave);
+
+  // 1) Peso na renda
+  if (orc.renda > 0) {
+    const pct = Math.round((compra.valor / orc.renda) * 100);
+    if (pct >= 10) msgs.push({ nivel: 'info', texto: `Essa compra equivale a ${pct}% da sua renda mensal.` });
+  }
+
+  // 2) Orçamento livre do mês
+  if (orc.renda === 0) {
+    msgs.push({ nivel: 'info', texto: `Cadastre suas entradas mensais para o app calcular seu orçamento.` });
+  } else if (orc.livre <= 0) {
+    msgs.push({ nivel: 'perigo', texto: `Em ${mes}, as despesas fixas e a meta de guardar já usam toda a renda. Não há orçamento livre.` });
+  } else {
+    const depois = orc.gasto + compra.valor;
+    const pctUso = Math.round((depois / orc.livre) * 100);
+    if (depois > orc.livre) {
+      msgs.push({ nivel: 'perigo', texto: `Passa ${fmt.valor(depois - orc.livre)} do seu orçamento livre de ${mes} (${fmt.valor(orc.livre)}).` });
+    } else if (pctUso >= 80) {
+      msgs.push({ nivel: 'aviso', texto: `Vai usar ${pctUso}% do orçamento livre de ${mes}. Sobram ${fmt.valor(orc.livre - depois)}.` });
+    } else {
+      msgs.push({ nivel: 'ok', texto: `Cabe no orçamento de ${mes}: sobram ${fmt.valor(orc.livre - depois)}.` });
+    }
+  }
+
+  // 3) Impacto no saldo da conta (só para compras pela conta)
+  if (compra.pagamento === 'conta') {
+    const antes = projetar(semEla, hoje);
+    const com = projetar({ ...semEla, compras: [...semEla.compras, { ...compra, id: '__nova', afetaConta: true }] }, hoje);
+    const negativoComCompra = com.dias.find((d) => d.data >= compra.data && d.saldo < 0);
+    const negativoAntes = antes.dias.find((d) => d.data >= compra.data && d.saldo < 0);
+    if (negativoComCompra && !negativoAntes) {
+      msgs.push({ nivel: 'perigo', texto: `Com essa compra, sua conta fica negativa a partir de ${fmt.data(negativoComCompra.data)}.` });
+    } else if (negativoComCompra) {
+      msgs.push({ nivel: 'aviso', texto: `Sua conta já está projetada no negativo; essa compra aumenta o valor negativo.` });
+    }
+  } else {
+    msgs.push({ nivel: 'info', texto: `No cartão: não sai da conta agora. Lembre de incluir na fatura de ${nomeCartao(dados, compra.pagamento)}.` });
+  }
+  return msgs;
+}
+
+// ---------- Investimentos ----------
+
+/** Converte o rendimento informado em taxa MENSAL (fração: 0,01 = 1% a.m.). */
+export function taxaMensal(inv, cdiAnual) {
+  const { modo, taxa } = inv.rendimento;
+  if (modo === 'mes') return taxa / 100;
+  if (modo === 'ano') return Math.pow(1 + taxa / 100, 1 / 12) - 1;
+  if (modo === 'cdi') return Math.pow(1 + ((cdiAnual / 100) * taxa) / 100, 1 / 12) - 1;
+  return 0;
+}
+
+/** Valor estimado após N meses, sem novos aportes (juros compostos). */
+export function projetarInvestimento(saldo, taxaMes, meses) {
+  return Math.round(saldo * Math.pow(1 + taxaMes, meses));
+}
+
+/** Meta da reserva de emergência e quanto falta. */
+export function metaReserva(dados, inv, hoje) {
+  const base = gastosFixosMensais(dados, hoje);
+  const meta = base * inv.mesesReserva;
+  return { base, meta, falta: Math.max(0, meta - inv.saldo), pct: meta ? Math.min(100, Math.round((inv.saldo / meta) * 100)) : 0 };
+}
+
+/**
+ * Em quantos meses a meta é atingida guardando `aporteMes` por mês,
+ * com o rendimento da caixinha. Retorna null se nunca (aporte 0 e sem rendimento).
+ */
+export function mesesParaMeta(saldo, meta, aporteMes, taxaMes) {
+  if (saldo >= meta) return 0;
+  if (aporteMes <= 0 && taxaMes <= 0) return null;
+  let s = saldo;
+  for (let m = 1; m <= 600; m++) {
+    s = s * (1 + taxaMes) + aporteMes;
+    if (s >= meta) return m;
+  }
+  return null;
+}
+
+// ---------- Painel ----------
+
+/** Próximos lançamentos a partir de amanhã (inclui compras no cartão futuras). */
+export function proximosLancamentos(dados, projecao, hoje, quantidade = 8) {
+  const fim = projecao.fim;
+  const lista = gerarLancamentos(dados, somarDias(hoje, 1), fim).slice(0, quantidade);
+  return lista.map((l) => ({ ...l, saldoDepois: saldoNoDia(projecao, l.data) }));
+}
+
+/** Saídas (contas e faturas) que vencem de hoje até daqui a `dias` dias. */
+export function contasAVencer(dados, hoje, dias) {
+  return gerarLancamentos(dados, hoje, somarDias(hoje, dias))
+    .filter((l) => l.tipo === 'saida' && (l.fonte === 'evento' || l.fonte === 'fatura'));
+}
+
+/** Alertas do painel: lista de { nivel, texto }. */
 export function gerarAlertas(dados, projecao, hoje, fmt) {
   const alertas = [];
-  const { cheque, config } = dados;
-  const atual = diaAtual(projecao, hoje);
-  const futuros = projecao.dias.filter((d) => d.data > atual.data);
 
-  // 1) Uso atual do cheque especial
-  if (atual.saldo < 0 && cheque.limite > 0) {
-    const pct = Math.round((-atual.saldo / cheque.limite) * 100);
-    if (pct >= 100) alertas.push({ nivel: 'perigo', texto: `Cheque especial no limite (${pct}% usado).` });
-    else if (pct >= config.alertaChequePct) alertas.push({ nivel: 'aviso', texto: `Cheque especial em ${pct}% do limite.` });
+  // 1) Contas vencendo hoje / nos próximos dias
+  for (const c of contasAVencer(dados, hoje, Math.max(1, dados.config.diasAntes))) {
+    const d = diferencaDias(hoje, c.data);
+    const quando = d === 0 ? 'hoje' : d === 1 ? 'amanhã' : `em ${d} dias (${fmt.data(c.data)})`;
+    alertas.push({ nivel: d === 0 ? 'perigo' : 'aviso', texto: `${c.nome} vence ${quando}: ${fmt.valor(c.valor)}.` });
   }
 
-  // 2) Prazo sem juros (situação atual)
-  if (atual.saldo < 0 && atual.negativoDesde) {
-    const restantes = cheque.diasSemJuros - atual.diasNegativo;
-    const fimPrazo = somarDias(atual.negativoDesde, cheque.diasSemJuros);
-    if (restantes < 0) alertas.push({ nivel: 'perigo', texto: `Prazo sem juros do cheque especial acabou em ${fmt.data(fimPrazo)}.` });
-    else if (restantes <= 7) alertas.push({ nivel: 'aviso', texto: `Prazo sem juros acaba em ${restantes} dia(s) (${fmt.data(fimPrazo)}).` });
-  }
-
-  // 3) Prazo sem juros estourando no futuro
-  const estouroPrazo = futuros.find((d) => d.saldo < 0 && d.diasNegativo === cheque.diasSemJuros + 1);
-  if (estouroPrazo) {
-    alertas.push({ nivel: 'aviso', texto: `Pela projeção, o prazo sem juros estoura em ${fmt.data(estouroPrazo.data)}.` });
-  }
-
-  // 4) Saldo projetado abaixo do limite (estoura o cheque especial)
-  const estouro = futuros.find((d) => d.saldo < -cheque.limite);
-  if (estouro) {
-    alertas.push({ nivel: 'perigo', texto: `Saldo projetado passa do limite em ${fmt.data(estouro.data)}: ${fmt.valor(estouro.saldo)}.` });
-  }
-
-  // 5) Períodos futuros no negativo (o problema de "timing")
+  // 2) Períodos com saldo projetado negativo (a partir de hoje)
   let periodo = null;
   const periodos = [];
-  for (const d of futuros) {
+  for (const d of projecao.dias) {
+    if (d.data < hoje) continue;
     if (d.saldo < 0) {
-      if (!periodo) periodo = { inicio: d.data, fim: d.data, minimo: d };
+      if (!periodo) periodo = { inicio: d.data, fim: d.data };
       periodo.fim = d.data;
-      if (d.saldo < periodo.minimo.saldo) periodo.minimo = d;
-    } else if (periodo) {
-      periodos.push(periodo);
-      periodo = null;
-    }
+    } else if (periodo) { periodos.push(periodo); periodo = null; }
   }
   if (periodo) periodos.push(periodo);
-  for (const p of periodos.slice(0, 3)) {
-    // Não repete o período que já começou hoje (coberto pelo alerta 1)
-    if (atual.saldo < 0 && p.inicio === futuros[0]?.data) {
-      alertas.push({ nivel: 'info', texto: `Conta negativa até ${fmt.data(p.fim)} (pior momento: ${fmt.valor(p.minimo.saldo)} em ${fmt.data(p.minimo.data)}).` });
-    } else {
-      alertas.push({ nivel: 'aviso', texto: `Saldo fica negativo de ${fmt.data(p.inicio)} a ${fmt.data(p.fim)} (pior: ${fmt.valor(p.minimo.saldo)} em ${fmt.data(p.minimo.data)}).` });
-    }
+  for (const p of periodos.slice(0, 2)) {
+    const positivo = somarDias(p.fim, 1);
+    const fimProjecao = p.fim === projecao.fim;
+    alertas.push({
+      nivel: 'aviso',
+      texto: p.inicio <= hoje
+        ? (fimProjecao ? 'Saldo projetado negativo até o fim da projeção.' : `Saldo negativo agora. Pela projeção, volta ao positivo em ${fmt.data(positivo)}.`)
+        : `Saldo projetado negativo de ${fmt.data(p.inicio)} a ${fmt.data(p.fim)}.`,
+    });
   }
 
+  // 3) Orçamento do mês estourado
+  const orc = orcamentoMes(dados, chaveMes(hoje));
+  if (orc.renda > 0 && orc.gasto > 0 && orc.gasto > orc.livre) {
+    alertas.push({ nivel: 'perigo', texto: `Compras do mês passaram ${fmt.valor(orc.gasto - Math.max(0, orc.livre))} do orçamento livre.` });
+  }
   return alertas;
 }

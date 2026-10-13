@@ -21,15 +21,14 @@ function rotuloEixo(centavos) {
 /**
  * Gráfico de linha do saldo dia a dia.
  * @param dias        lista de { data, saldo } (saída de projetar())
- * @param limite      limite do cheque especial em centavos (linha em -limite)
  * @param hoje        data ISO de hoje (linha vertical)
  * @param mesDestaque chave "AAAA-MM" do mês a destacar (faixa de fundo), opcional
  */
-export function svgSaldo(dias, limite, hoje, mesDestaque = null) {
+export function svgSaldo(dias, hoje, mesDestaque = null) {
   if (dias.length < 2) return '<p class="vazio">Sem dados suficientes para o gráfico.</p>';
 
   const saldos = dias.map((d) => d.saldo);
-  let min = Math.min(...saldos, 0, limite ? -limite : 0);
+  let min = Math.min(...saldos, 0);
   let max = Math.max(...saldos, 0);
   const folga = (max - min) * 0.08 || 10000;
   min -= folga;
@@ -39,7 +38,6 @@ export function svgSaldo(dias, limite, hoje, mesDestaque = null) {
   const areaA = ALTURA - MARGEM.topo - MARGEM.baixo;
   const x = (i) => MARGEM.esquerda + (i / (dias.length - 1)) * areaL;
   const y = (v) => MARGEM.topo + ((max - v) / (max - min)) * areaA;
-
   const partes = [];
 
   // Faixa de fundo no mês selecionado
@@ -52,26 +50,22 @@ export function svgSaldo(dias, limite, hoje, mesDestaque = null) {
     }
   }
 
-  // Linhas de grade horizontais (5 divisões)
+  // Grade horizontal (5 linhas) com rótulos
   for (let i = 0; i <= 4; i++) {
     const v = min + ((max - min) * i) / 4;
     partes.push(`<line class="g-grade" x1="${MARGEM.esquerda}" x2="${LARGURA - MARGEM.direita}" y1="${y(v)}" y2="${y(v)}"/>`);
     partes.push(`<text class="g-rotulo" x="${MARGEM.esquerda - 8}" y="${y(v) + 6}" text-anchor="end">${rotuloEixo(v)}</text>`);
   }
 
-  // Início de cada mês no eixo X
-  dias.forEach((d, i) => {
-    if (i > 0 && chaveMes(d.data) !== chaveMes(dias[i - 1].data)) {
-      partes.push(`<text class="g-rotulo" x="${x(i)}" y="${ALTURA - 8}" text-anchor="middle">${formatarDataCurta(d.data)}</text>`);
-    }
+  // Início de cada mês no eixo X (no máximo ~7 rótulos para não embolar)
+  const inicios = dias.map((d, i) => (i > 0 && chaveMes(d.data) !== chaveMes(dias[i - 1].data) ? i : -1)).filter((i) => i >= 0);
+  const passo = Math.ceil(inicios.length / 7) || 1;
+  inicios.forEach((i, n) => {
+    if (n % passo === 0) partes.push(`<text class="g-rotulo" x="${x(i)}" y="${ALTURA - 8}" text-anchor="middle">${formatarDataCurta(dias[i].data)}</text>`);
   });
 
-  // Linha do zero e do limite do cheque especial
+  // Linha do zero
   partes.push(`<line class="g-zero" x1="${MARGEM.esquerda}" x2="${LARGURA - MARGEM.direita}" y1="${y(0)}" y2="${y(0)}"/>`);
-  if (limite > 0) {
-    partes.push(`<line class="g-limite" x1="${MARGEM.esquerda}" x2="${LARGURA - MARGEM.direita}" y1="${y(-limite)}" y2="${y(-limite)}"/>`);
-    partes.push(`<text class="g-rotulo g-rotulo-limite" x="${LARGURA - MARGEM.direita}" y="${y(-limite) - 5}" text-anchor="end">limite do cheque</text>`);
-  }
 
   // Linha "hoje"
   const iHoje = dias.findIndex((d) => d.data === hoje);
@@ -83,7 +77,7 @@ export function svgSaldo(dias, limite, hoje, mesDestaque = null) {
   let caminho = `M${x(0)},${y(saldos[0])}`;
   for (let i = 1; i < dias.length; i++) caminho += ` H${x(i)} V${y(saldos[i])}`;
 
-  // Área preenchida: parte acima do zero (verde) e abaixo (vermelha), via clipPath
+  // Área: verde acima do zero, vermelha abaixo (recortes com clipPath)
   const area = `${caminho} V${y(0)} H${x(0)} Z`;
   partes.push(`
     <defs>
@@ -99,7 +93,7 @@ export function svgSaldo(dias, limite, hoje, mesDestaque = null) {
 }
 
 /**
- * Gráfico de rosca (donut) para mostrar a divisão das saídas.
+ * Gráfico de rosca (donut).
  * Truque do "stroke-dasharray": um círculo com contorno grosso em que só um
  * pedaço do contorno é pintado. Com raio 15,915 a circunferência dá 100,
  * então cada fatia usa direto a sua porcentagem.
@@ -111,7 +105,7 @@ export function svgRosca(fatias) {
   if (!total) {
     return `<svg class="rosca" viewBox="0 0 42 42"><circle cx="21" cy="21" r="${R}" fill="none" class="rosca-vazia" stroke-width="5.5"/></svg>`;
   }
-  const espaco = fatias.length > 1 ? 0.8 : 0; // pequeno vão entre as fatias
+  const espaco = fatias.length > 1 ? 0.8 : 0;
   let acumulado = 0;
   const arcos = fatias.map((f) => {
     const pct = (f.valor / total) * 100;
@@ -121,5 +115,5 @@ export function svgRosca(fatias) {
     acumulado += pct;
     return arco;
   });
-  return `<svg class="rosca" viewBox="0 0 42 42" role="img" aria-label="Divisão das saídas por categoria">${arcos.join('')}</svg>`;
+  return `<svg class="rosca" viewBox="0 0 42 42" role="img" aria-label="Gastos por categoria">${arcos.join('')}</svg>`;
 }

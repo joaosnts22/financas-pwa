@@ -1,19 +1,25 @@
 /**
- * ui/cadastros.js — Telas de cadastro:
- *  - "Dívidas": cheque especial e cartões de crédito.
- *  - "Mais": entradas e saídas, configurações e backup.
+ * ui/cadastros.js — Aba "Mais": conta, entradas, saídas fixas, cartões,
+ * orçamento e metas, lembretes e backup. Também o menu do botão "+".
  *
- * Padrão usado: a função tela...() devolve o HTML, e ligarCadastros() conecta
- * os botões (as duas telas usam os mesmos atributos data-acao). Toda alteração
- * passa por ctx.alterar(fn), que copia os dados, aplica a mudança, salva no
- * aparelho e redesenha a tela.
+ * Padrão: telaMais() devolve o HTML e ligarMais() conecta os botões.
+ * Toda alteração passa por ctx.alterar(fn), que copia os dados, aplica a
+ * mudança, salva no aparelho e redesenha a tela.
  */
-import { CATEGORIAS } from '../calculos.js';
-import { centavosParaTexto, paraCentavos } from '../dinheiro.js';
-import { formatarData, nomeMes, lerDataBR, hojeISO, somarDias } from '../datas.js';
+import { CATEGORIAS_SAIDA } from '../calculos.js';
+import { centavosParaTexto, paraCentavos, paraNumero, numeroParaTexto } from '../dinheiro.js';
+import { formatarData, nomeMes, hojeISO } from '../datas.js';
 import { novoId, exportarJSON, lerArquivoJSON, dadosExemplo, dadosVazios } from '../dados.js';
-import { esc, abrirModal, avisar, confirmar, valorNeutro, valorHTML, cabecalho, botaoAcao } from './comum.js';
-import { icone, avatarCategoria, avatarInicial } from './icones.js';
+import {
+  esc, abrirModal, avisar, confirmar, fecharModal, valorNeutro, valorHTML, cabecalho, botaoAcao,
+  campoValor, lerValor,
+} from './comum.js';
+import { icone, avatarCategoria, avatarInicial, avatarIcone } from './icones.js';
+import { modalCompra } from './compras.js';
+import { modalMovimento } from './investimentos.js';
+import {
+  ativarNotificacoes, notificacaoTeste, exportarCalendario, permissaoAtual, sincronizarLembretes,
+} from '../notificacoes.js';
 
 const RECORRENCIAS = {
   unica: 'Uma vez (data fixa)',
@@ -21,93 +27,58 @@ const RECORRENCIAS = {
   ultimoDiaUtil: 'Todo mês (último dia útil)',
 };
 
-const avisoExemplo = (dados) => (dados.exemplo
-  ? `<p class="alerta aviso">${icone('info')}<span>Você está vendo <strong>dados de exemplo</strong>. Importe seu JSON em <em>Mais → Backup</em>.</span></p>`
-  : '');
-
-// ================================================================== Tela "Dívidas"
-
-export function telaDividas({ dados }) {
-  const { conta, cheque } = dados;
-  return `
-    ${avisoExemplo(dados)}
-    <section class="cartao">
-      ${cabecalho('Conta e cheque especial', botaoAcao('editar-conta', 'Editar'))}
-      <ul class="lista-simples">
-        <li><span>Saldo em ${formatarData(conta.dataSaldo)}</span>${valorHTML(conta.saldoInicial)}</li>
-        <li><span>Limite do cheque especial</span>${valorNeutro(cheque.limite)}</li>
-        <li><span>IOF estimado por cobrança</span>${valorNeutro(cheque.iof)}</li>
-        <li><span>Prazo sem juros</span><span>${cheque.diasSemJuros} dias</span></li>
-        <li><span>No negativo desde</span><span>${formatarData(cheque.negativoDesde)}${cheque.negativoDesde ? ` <small class="secundario">(até ${formatarData(somarDias(cheque.negativoDesde, cheque.diasSemJuros))})</small>` : ''}</span></li>
-        <li><span>Juros após o prazo</span><span>${cheque.taxaJurosMes ? `${String(cheque.taxaJurosMes).replace('.', ',')}% a.m.` : 'não cadastrado'}</span></li>
-      </ul>
-      <button class="btn btn-primario btn-bloco" data-acao="atualizar-saldo">${icone('atualizar')}Atualizar saldo de hoje</button>
-      <p class="dica">Confira o saldo real no app do banco de vez em quando e atualize aqui. A projeção recomeça a partir dele.</p>
-    </section>
-
-    ${dados.cartoes.map(cartaoCredito).join('')}
-
-    <button class="btn btn-bloco btn-tracejado" data-acao="novo-cartao">${icone('mais')}Adicionar cartão</button>
-  `;
-}
-
-function cartaoCredito(c) {
-  const abertas = c.faturas.filter((f) => !f.paga);
-  const p = c.parcelamento;
-  const pctParcelas = p && p.parcelas ? Math.round((p.pagas / p.parcelas) * 100) : 0;
-  return `
-    <section class="cartao">
-      <div class="cartao-cabecalho">
-        <div class="titulo-com-avatar">${avatarInicial(c.nome)}<span><h2>${esc(c.nome)}</h2>
-          <small class="secundario">${abertas.length} fatura(s) em aberto</small></span></div>
-        ${botaoAcao('editar-cartao', 'Editar', 'editar', `data-id="${c.id}"`)}
-      </div>
-      <ul class="lista-faturas">
-        ${c.faturas.map((f) => `
-          <li class="${f.paga ? 'paga' : ''}">
-            <span>${formatarData(f.vencimento)}</span>
-            <span class="chip ${f.paga ? 'ok' : 'neutro'}">${f.paga ? 'paga' : 'aberta'}</span>
-            ${f.paga ? valorNeutro(f.valor) : valorHTML(-f.valor)}
-          </li>`).join('') || '<li class="vazio">Nenhuma fatura cadastrada</li>'}
-      </ul>
-      ${abertas.length ? `<div class="rodape-total"><span>Total em aberto</span>${valorHTML(-abertas.reduce((s, f) => s + f.valor, 0))}</div>` : ''}
-      ${p && p.parcelas ? `
-        <div class="parcelamento">
-          <div class="grade-3">
-            <span><small>Parcelas pagas</small>${p.pagas} de ${p.parcelas}</span>
-            <span><small>Valor da parcela</small>${valorNeutro(p.valor)}</span>
-            <span><small>Juros totais</small>${valorNeutro(p.jurosTotais)}</span>
-          </div>
-          <div class="barra fina"><div class="barra-preenchida destaque" style="width:${pctParcelas}%"></div></div>
-          <p class="dica">As parcelas já estão dentro dos valores das faturas acima.</p>
-        </div>` : ''}
-    </section>`;
-}
-
 // ================================================================== Tela "Mais"
 
 export function telaMais({ dados }) {
-  const { config } = dados;
+  const { conta, config } = dados;
   const entradas = dados.eventos.filter((e) => e.tipo === 'entrada');
   const saidas = dados.eventos.filter((e) => e.tipo === 'saida');
+  const permissao = permissaoAtual();
 
   return `
-    ${avisoExemplo(dados)}
-    ${secaoEventos('Entradas', entradas, 'entrada')}
-    ${secaoEventos('Saídas', saidas, 'saida')}
+    ${dados.exemplo ? `<p class="alerta aviso">${icone('info')}<span>Você está vendo <strong>dados de exemplo</strong>. Importe seu JSON em <em>Backup</em>, no fim desta tela.</span></p>` : ''}
 
     <section class="cartao">
-      ${cabecalho('Configurações', botaoAcao('editar-config', 'Editar'))}
+      ${cabecalho('Conta', botaoAcao('atualizar-saldo', 'Atualizar', 'atualizar'))}
+      <div class="linha-valores">
+        <span><small>Saldo informado</small>${valorHTML(conta.saldoInicial)}</span>
+        <span class="direita"><small>Em</small>${formatarData(conta.dataSaldo)}</span>
+      </div>
+      <p class="dica">Confira o saldo no app do banco de vez em quando e atualize aqui. A projeção recomeça a partir dele.</p>
+    </section>
+
+    ${secaoEventos('Entradas', entradas, 'entrada')}
+    ${secaoEventos('Saídas fixas', saidas, 'saida')}
+
+    <section class="cartao">
+      ${cabecalho('Cartões de crédito', botaoAcao('novo-cartao', 'Adicionar', 'mais'))}
+      ${dados.cartoes.length ? dados.cartoes.map(blocoCartao).join('') : '<p class="vazio">Nenhum cartão.</p>'}
+    </section>
+
+    <section class="cartao">
+      ${cabecalho('Orçamento e metas', botaoAcao('editar-config', 'Editar'))}
       <ul class="lista-simples">
-        <li><span>Projetar até</span><span>${nomeMes(config.mesFinal)}</span></li>
-        <li><span>Alerta de uso do cheque</span><span>${config.alertaChequePct}%</span></li>
-        <li><span>Feriados cadastrados</span><span>${config.feriados.length}</span></li>
+        <li><span>Meta de guardar por mês</span><span>${numeroParaTexto(config.metaGuardarPct)}% da renda</span></li>
+        <li><span>CDI usado nos cálculos</span><span>${numeroParaTexto(config.cdiAnual)}% ao ano</span></li>
+        <li><span>Projetar o saldo por</span><span>${config.mesesAFrente} meses</span></li>
       </ul>
+    </section>
+
+    <section class="cartao">
+      ${cabecalho('Lembretes de contas')}
+      <label class="check"><input type="checkbox" data-acao="lembretes" ${config.lembretes && permissao === 'granted' ? 'checked' : ''}>
+        Notificar contas a pagar</label>
+      <label class="linha-campo">Avisar com antecedência de
+        <select data-acao="dias-antes">${[0, 1, 2, 3, 5, 7].map((n) => `<option value="${n}" ${n === config.diasAntes ? 'selected' : ''}>${n === 0 ? 'só no dia' : `${n} dia(s)`}</option>`).join('')}</select>
+      </label>
+      <p class="dica">${permissao === 'denied' ? '⚠️ As notificações estão bloqueadas no navegador. Libere nas configurações do celular. ' : ''}
+        O aviso aparece quando você abre o app (e, no Android, às vezes em segundo plano). Para lembrete garantido, adicione as contas ao calendário do celular:</p>
+      <button class="btn btn-bloco" data-acao="calendario">${icone('calendario')}Adicionar lembretes ao calendário</button>
     </section>
 
     <section class="cartao">
       ${cabecalho('Backup')}
-      <p class="dica">${icone('escudo')} Seus dados ficam <strong>só neste aparelho</strong>. Exporte um backup com frequência e guarde fora do GitHub.</p>
+      <p class="dica">${icone('escudo')}Seus dados ficam <strong>só neste aparelho</strong>. Exporte um backup com frequência e guarde fora do GitHub.</p>
       <div class="botoes">
         <button class="btn btn-primario" data-acao="exportar">${icone('baixar')}Exportar</button>
         <label class="btn">${icone('subir')}Importar<input type="file" accept="application/json,.json" data-acao="importar" hidden></label>
@@ -128,10 +99,10 @@ function secaoEventos(titulo, lista, tipo) {
         ${lista.map((e) => `
           <li class="${e.ativo ? '' : 'inativo'}">
             <button class="extrato-item item-clicavel" data-acao="editar-evento" data-id="${e.id}">
-              ${avatarCategoria(e.categoria)}
+              ${avatarCategoria(e.categoria, tipo)}
               <span class="extrato-texto">
                 <strong>${esc(e.nome)}</strong>
-                <small>${descreverRecorrencia(e)}${e.cenario ? ' · <span class="selo">cenário</span>' : ''}${e.ativo ? '' : ' · <span class="selo cinza">desligado</span>'}</small>
+                <small>${esc(e.categoria)} · ${descreverRecorrencia(e)}${e.ativo ? '' : ' · <span class="selo cinza">desligado</span>'}</small>
               </span>
               ${valorHTML(tipo === 'entrada' ? e.valor : -e.valor)}
             </button>
@@ -141,26 +112,59 @@ function secaoEventos(titulo, lista, tipo) {
 }
 
 function descreverRecorrencia(e) {
-  const periodo = `de ${nomeMes(e.inicio)}${e.fim ? ` até ${nomeMes(e.fim)}` : ' em diante'}`;
-  if (e.recorrencia === 'unica') return `Em ${formatarData(e.data)}`;
-  if (e.recorrencia === 'mensal') return `Todo dia ${e.dia}, ${periodo}`;
-  return `Último dia útil, ${periodo}`;
+  const periodo = `desde ${nomeMes(e.inicio)}${e.fim ? ` até ${nomeMes(e.fim)}` : ''}`;
+  if (e.recorrencia === 'unica') return `em ${formatarData(e.data)}`;
+  if (e.recorrencia === 'mensal') return `todo dia ${e.dia}, ${periodo}`;
+  return `último dia útil, ${periodo}`;
+}
+
+function blocoCartao(c) {
+  const abertas = c.faturas.filter((f) => !f.paga);
+  const p = c.parcelamento;
+  return `
+    <div class="sub-cartao">
+      <div class="cartao-cabecalho">
+        <div class="titulo-com-avatar">${avatarInicial(c.nome)}<span><h3>${esc(c.nome)}</h3>
+          <small class="secundario">${abertas.length} fatura(s) em aberto</small></span></div>
+        ${botaoAcao('editar-cartao', 'Editar', 'editar', `data-id="${c.id}"`)}
+      </div>
+      <ul class="lista-faturas">
+        ${c.faturas.map((f) => `
+          <li class="${f.paga ? 'paga' : ''}">
+            <span>${formatarData(f.vencimento)}</span>
+            <span class="chip ${f.paga ? 'ok' : 'neutro'}">${f.paga ? 'paga' : 'aberta'}</span>
+            ${f.paga ? valorNeutro(f.valor) : valorHTML(-f.valor)}
+          </li>`).join('') || '<li class="vazio">Nenhuma fatura cadastrada</li>'}
+      </ul>
+      ${p ? `
+        <div class="parcelamento">
+          <div class="grade-3">
+            <span><small>Parcelas pagas</small>${p.pagas} de ${p.parcelas}</span>
+            <span><small>Valor da parcela</small>${valorNeutro(p.valor)}</span>
+            <span><small>Juros totais</small>${valorNeutro(p.jurosTotais)}</span>
+          </div>
+          <p class="dica">As parcelas já estão dentro das faturas acima.</p>
+        </div>` : ''}
+    </div>`;
 }
 
 // ================================================================== Cliques
 
-export function ligarCadastros(raiz, ctx) {
+export function ligarMais(raiz, ctx) {
   raiz.addEventListener('click', (e) => {
     const alvo = e.target.closest('[data-acao]');
-    if (!alvo || alvo.tagName === 'INPUT') return;
+    if (!alvo || alvo.tagName === 'INPUT' || alvo.tagName === 'SELECT') return;
     const acoes = {
-      'editar-conta': () => modalConta(ctx),
       'atualizar-saldo': () => modalAtualizarSaldo(ctx),
       'novo-evento': () => modalEvento(ctx, null, alvo.dataset.tipo),
       'editar-evento': () => modalEvento(ctx, ctx.dados.eventos.find((x) => x.id === alvo.dataset.id)),
       'novo-cartao': () => modalCartao(ctx, null),
       'editar-cartao': () => modalCartao(ctx, ctx.dados.cartoes.find((x) => x.id === alvo.dataset.id)),
       'editar-config': () => modalConfig(ctx),
+      calendario: () => {
+        const n = exportarCalendario(ctx.dados);
+        avisar(n ? `${n} lembrete(s) exportado(s). Abra o arquivo para adicionar ao calendário.` : 'Nenhuma conta futura para exportar.');
+      },
       exportar: () => { exportarJSON(ctx.dados); avisar('Backup exportado.'); },
       exemplo: () => {
         if (confirmar('Substituir os dados atuais pelos dados de EXEMPLO? (exporte um backup antes)')) {
@@ -177,7 +181,25 @@ export function ligarCadastros(raiz, ctx) {
   });
 
   raiz.addEventListener('change', async (e) => {
-    if (e.target.dataset.acao !== 'importar' || !e.target.files[0]) return;
+    const acao = e.target.dataset.acao;
+    if (acao === 'dias-antes') {
+      ctx.alterar((d) => { d.config.diasAntes = Number(e.target.value); });
+      return;
+    }
+    if (acao === 'lembretes') {
+      const ligar = e.target.checked;
+      try {
+        if (ligar) await ativarNotificacoes();
+        ctx.alterar((d) => { d.config.lembretes = ligar; });
+        if (ligar) { await notificacaoTeste(); await sincronizarLembretes({ ...ctx.dados, config: { ...ctx.dados.config, lembretes: true } }); }
+        avisar(ligar ? 'Lembretes ativados.' : 'Lembretes desligados.');
+      } catch (erro) {
+        e.target.checked = false;
+        alert(erro.message);
+      }
+      return;
+    }
+    if (acao !== 'importar' || !e.target.files[0]) return;
     try {
       const dados = await lerArquivoJSON(e.target.files[0]);
       if (confirmar('Importar este arquivo vai SUBSTITUIR os dados atuais. Continuar?')) {
@@ -191,98 +213,53 @@ export function ligarCadastros(raiz, ctx) {
   });
 }
 
-/**
- * Menu do botão "+" (central da barra inferior).
- * Reaproveita os mesmos formulários das telas de cadastro.
- */
+/** Menu do botão "+" central. */
 export function abrirMenuRapido(ctx) {
+  const opcoes = [
+    ['compra', 'sacola', '#f59e0b', 'Registrar compra', 'O app avisa se cabe no orçamento'],
+    ['guardar', 'cofre', '#22c55e', 'Guardar dinheiro', 'Colocar na caixinha ou investimento'],
+    ['entrada', 'setaCima', '#14b8a6', 'Nova entrada', 'Salário, venda, ajuda...'],
+    ['saida', 'setaBaixo', '#f43f5e', 'Nova saída fixa', 'Aluguel, contas, parcelas...'],
+    ['saldo', 'atualizar', '#6ea8ff', 'Atualizar saldo da conta', 'Conferiu no app do banco? Ajuste aqui.'],
+  ];
   abrirModal({
     titulo: 'O que você quer fazer?',
     semRodape: true,
-    corpo: `
-      <div class="menu-rapido">
-        <button type="button" data-rapido="entrada">${avatarCategoria('salario')}<span><strong>Nova entrada</strong><small>Salário, venda, horas extras...</small></span></button>
-        <button type="button" data-rapido="saida">${avatarCategoria('gasto')}<span><strong>Nova saída</strong><small>Conta fixa, gasto, parcela...</small></span></button>
-        <button type="button" data-rapido="saldo">${avatarCategoria('desconto')}<span><strong>Atualizar saldo de hoje</strong><small>Conferiu no app do banco? Ajuste aqui.</small></span></button>
-      </div>`,
+    corpo: `<div class="menu-rapido">${opcoes.map(([id, ic, cor, titulo, sub]) => `
+      <button type="button" data-rapido="${id}">${avatarIcone(ic, cor)}<span><strong>${titulo}</strong><small>${sub}</small></span></button>`).join('')}</div>`,
     aoMontar: (f) => {
       f.querySelector('.menu-rapido').addEventListener('click', (e) => {
         const b = e.target.closest('[data-rapido]');
         if (!b) return;
-        document.getElementById('modal').close();
-        if (b.dataset.rapido === 'saldo') modalAtualizarSaldo(ctx);
-        else modalEvento(ctx, null, b.dataset.rapido);
+        fecharModal();
+        const acoes = {
+          compra: () => modalCompra(ctx),
+          guardar: () => modalMovimento(ctx, 'aporte'),
+          entrada: () => modalEvento(ctx, null, 'entrada'),
+          saida: () => modalEvento(ctx, null, 'saida'),
+          saldo: () => modalAtualizarSaldo(ctx),
+        };
+        acoes[b.dataset.rapido]();
       });
     },
   });
 }
 
-// ================================================================== Modais (formulários)
-
-/** Lê um campo de valor em R$ e devolve centavos (ou lança erro). */
-function lerValor(form, nome, rotulo, { permitirNegativo = false } = {}) {
-  const c = paraCentavos(form.elements[nome].value);
-  if (c === null) throw new Error(`Valor inválido em "${rotulo}".`);
-  if (!permitirNegativo && c < 0) throw new Error(`"${rotulo}" não pode ser negativo.`);
-  return c;
-}
-
-const campoValor = (nome, rotulo, centavos, dica = '') => `
-  <label>${rotulo}
-    <input name="${nome}" inputmode="decimal" autocomplete="off" value="${centavosParaTexto(centavos)}" placeholder="0,00">
-    ${dica ? `<small>${dica}</small>` : ''}
-  </label>`;
-
-function modalConta(ctx) {
-  const { conta, cheque } = ctx.dados;
-  abrirModal({
-    titulo: 'Conta e cheque especial',
-    corpo: `
-      ${campoValor('saldo', 'Saldo da conta (R$)', conta.saldoInicial, 'Negativo = usando o cheque especial. Ex.: -1875,00')}
-      <label>Data desse saldo<input type="date" name="dataSaldo" value="${conta.dataSaldo}" required></label>
-      ${campoValor('limite', 'Limite do cheque especial (R$)', cheque.limite)}
-      ${campoValor('iof', 'IOF estimado a cada desconto (R$)', cheque.iof)}
-      <label>Prazo sem juros (dias)<input type="number" name="diasSemJuros" min="0" value="${cheque.diasSemJuros}"></label>
-      <label>No negativo desde<input type="date" name="negativoDesde" value="${cheque.negativoDesde || ''}">
-        <small>Dia em que a conta ficou negativa. Usado para contar o prazo sem juros.</small></label>
-      <label>Juros após o prazo (% ao mês)<input name="taxa" inputmode="decimal" value="${String(cheque.taxaJurosMes).replace('.', ',')}">
-        <small>Deixe 0 se não souber; o app só vai avisar quando o prazo acabar.</small></label>`,
-    aoSalvar: (f) => {
-      const saldo = lerValor(f, 'saldo', 'Saldo', { permitirNegativo: true });
-      const limite = lerValor(f, 'limite', 'Limite');
-      const iof = lerValor(f, 'iof', 'IOF');
-      const taxa = Number(f.elements.taxa.value.replace(',', '.')) || 0;
-      if (!f.elements.dataSaldo.value) throw new Error('Informe a data do saldo.');
-      ctx.alterar((d) => {
-        d.conta.saldoInicial = saldo;
-        d.conta.dataSaldo = f.elements.dataSaldo.value;
-        d.cheque.limite = limite;
-        d.cheque.iof = iof;
-        d.cheque.diasSemJuros = Math.max(0, parseInt(f.elements.diasSemJuros.value, 10) || 0);
-        d.cheque.negativoDesde = f.elements.negativoDesde.value || null;
-        d.cheque.taxaJurosMes = Math.max(0, taxa);
-      });
-      avisar('Salvo.');
-    },
-  });
-}
+// ================================================================== Formulários
 
 export function modalAtualizarSaldo(ctx) {
   abrirModal({
-    titulo: 'Saldo de hoje',
+    titulo: 'Saldo da conta hoje',
     corpo: `
-      <p class="dica">Digite o saldo que aparece AGORA no app do banco (negativo se estiver no cheque especial).
-      Lançamentos com data até hoje serão considerados já incluídos nesse saldo.</p>
+      <p class="dica">Digite o saldo que aparece AGORA no app do banco (com sinal de menos se estiver negativo).
+      Lançamentos com data até hoje passam a ser considerados já incluídos nesse saldo.</p>
       ${campoValor('saldo', 'Saldo atual (R$)', ctx.dados.conta.saldoInicial)}`,
     aoSalvar: (f) => {
       const saldo = lerValor(f, 'saldo', 'Saldo', { permitirNegativo: true });
-      const hoje = hojeISO();
       ctx.alterar((d) => {
-        // Se a conta acabou de ficar negativa, começa a contar o prazo hoje
-        if (saldo < 0 && d.conta.saldoInicial >= 0) d.cheque.negativoDesde = hoje;
-        if (saldo >= 0) d.cheque.negativoDesde = null;
         d.conta.saldoInicial = saldo;
-        d.conta.dataSaldo = hoje;
+        d.conta.dataSaldo = hojeISO();
+        d.conta.atualizadoEm = Date.now();
       });
       avisar('Saldo atualizado.');
     },
@@ -290,19 +267,25 @@ export function modalAtualizarSaldo(ctx) {
 }
 
 export function modalEvento(ctx, evento, tipoNovo) {
+  const tipo = evento ? evento.tipo : tipoNovo;
   const ev = evento || {
-    nome: '', tipo: tipoNovo, categoria: tipoNovo === 'entrada' ? 'salario' : 'fixa', valor: 0,
-    recorrencia: 'unica', data: hojeISO(), dia: 5, inicio: hojeISO().slice(0, 7), fim: '', ativo: true, cenario: false,
+    nome: '', tipo, categoria: tipo === 'entrada' ? '' : 'Despesa fixa', valor: 0,
+    recorrencia: tipo === 'entrada' ? 'unica' : 'mensal', data: hojeISO(), dia: 5, inicio: hojeISO().slice(0, 7), fim: '', ativo: true,
   };
-  const opcoesCategoria = Object.entries(CATEGORIAS)
-    .filter(([cat, c]) => c.tipo === ev.tipo && cat !== 'fatura' && cat !== 'encargo')
-    .map(([cat, c]) => `<option value="${cat}" ${cat === ev.categoria ? 'selected' : ''}>${c.nome}</option>`).join('');
+  const ehEntrada = tipo === 'entrada';
+  // Entradas: categoria livre (com sugestões do que você já usou). Saídas: lista.
+  const usadas = [...new Set(ctx.dados.eventos.filter((e) => e.tipo === 'entrada').map((e) => e.categoria))];
+  const campoCategoria = ehEntrada
+    ? `<label>Categoria<input name="categoria" list="cat-entradas" value="${esc(ev.categoria)}" placeholder="Ex.: Trabalho, Venda, Freela" autocomplete="off">
+        <datalist id="cat-entradas">${usadas.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></label>`
+    : `<label>Categoria<select name="categoria">${[...new Set([...CATEGORIAS_SAIDA, ev.categoria])].map((c) =>
+        `<option ${c === ev.categoria ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>`;
 
   abrirModal({
-    titulo: evento ? `Editar ${ev.tipo === 'entrada' ? 'entrada' : 'saída'}` : `Nova ${ev.tipo === 'entrada' ? 'entrada' : 'saída'}`,
+    titulo: evento ? `Editar ${ehEntrada ? 'entrada' : 'saída'}` : `Nova ${ehEntrada ? 'entrada' : 'saída fixa'}`,
     corpo: `
-      <label>Nome<input name="nome" value="${esc(ev.nome)}" required placeholder="Ex.: Aluguel"></label>
-      <label>Categoria<select name="categoria">${opcoesCategoria}</select></label>
+      <label>Nome<input name="nome" value="${esc(ev.nome)}" placeholder="${ehEntrada ? 'Ex.: Salário' : 'Ex.: Aluguel'}"></label>
+      ${campoCategoria}
       ${campoValor('valor', 'Valor (R$)', ev.valor)}
       <label>Repetição<select name="recorrencia">
         ${Object.entries(RECORRENCIAS).map(([k, t]) => `<option value="${k}" ${k === ev.recorrencia ? 'selected' : ''}>${t}</option>`).join('')}
@@ -314,11 +297,9 @@ export function modalEvento(ctx, evento, tipoNovo) {
         <label>A partir de<input type="month" name="inicio" value="${ev.inicio}" placeholder="AAAA-MM"></label>
         <label>Até (opcional)<input type="month" name="fim" value="${ev.fim}" placeholder="AAAA-MM"></label>
       </div>
-      <label class="check"><input type="checkbox" name="ativo" ${ev.ativo ? 'checked' : ''}> Ligado (entra na projeção)</label>
-      <label class="check"><input type="checkbox" name="cenario" ${ev.cenario ? 'checked' : ''}> É um cenário incerto (ex.: horas extras)</label>
+      <label class="check"><input type="checkbox" name="ativo" ${ev.ativo ? 'checked' : ''}> Ativo (entra nos cálculos)</label>
       ${evento ? `<button type="button" class="btn btn-perigo btn-bloco" data-excluir>${icone('lixeira')}Excluir</button>` : ''}`,
     aoMontar: (f) => {
-      // Mostra só os campos que fazem sentido para o tipo de repetição
       const atualizarCampos = () => {
         const r = f.elements.recorrencia.value;
         f.querySelectorAll('[data-mostrar]').forEach((el) => { el.hidden = !el.dataset.mostrar.split(' ').includes(r); });
@@ -328,13 +309,15 @@ export function modalEvento(ctx, evento, tipoNovo) {
       f.querySelector('[data-excluir]')?.addEventListener('click', () => {
         if (!confirmar(`Excluir "${ev.nome}"?`)) return;
         ctx.alterar((d) => { d.eventos = d.eventos.filter((x) => x.id !== ev.id); });
-        document.getElementById('modal').close();
+        fecharModal();
         avisar('Excluído.');
       });
     },
     aoSalvar: (f) => {
       const nome = f.elements.nome.value.trim();
       if (!nome) throw new Error('Dê um nome.');
+      const categoria = f.elements.categoria.value.trim();
+      if (!categoria) throw new Error('Escreva uma categoria.');
       const valor = lerValor(f, 'valor', 'Valor');
       const recorrencia = f.elements.recorrencia.value;
       const inicio = f.elements.inicio.value;
@@ -342,13 +325,11 @@ export function modalEvento(ctx, evento, tipoNovo) {
       if (recorrencia === 'unica' && !f.elements.data.value) throw new Error('Informe a data.');
       if (recorrencia !== 'unica' && !/^\d{4}-\d{2}$/.test(inicio)) throw new Error('Informe o mês inicial (AAAA-MM).');
       if (fim && !/^\d{4}-\d{2}$/.test(fim)) throw new Error('Mês final inválido (use AAAA-MM).');
-
       const novo = {
-        id: ev.id || novoId(), nome, tipo: ev.tipo, categoria: f.elements.categoria.value, valor, recorrencia,
+        id: ev.id || novoId(), nome, tipo, categoria, valor, recorrencia,
         data: f.elements.data.value || ev.data,
         dia: Math.min(31, Math.max(1, parseInt(f.elements.dia.value, 10) || 1)),
-        inicio: inicio || ev.inicio, fim,
-        ativo: f.elements.ativo.checked, cenario: f.elements.cenario.checked,
+        inicio: inicio || ev.inicio, fim, ativo: f.elements.ativo.checked,
       };
       ctx.alterar((d) => {
         const i = d.eventos.findIndex((x) => x.id === novo.id);
@@ -397,7 +378,7 @@ function modalCartao(ctx, cartao) {
       f.querySelector('[data-excluir]')?.addEventListener('click', () => {
         if (!confirmar(`Excluir o cartão "${c.nome}" e todas as faturas?`)) return;
         ctx.alterar((d) => { d.cartoes = d.cartoes.filter((x) => x.id !== c.id); });
-        document.getElementById('modal').close();
+        fecharModal();
         avisar('Cartão excluído.');
       });
     },
@@ -433,29 +414,24 @@ function modalCartao(ctx, cartao) {
 function modalConfig(ctx) {
   const { config } = ctx.dados;
   abrirModal({
-    titulo: 'Configurações',
+    titulo: 'Orçamento e metas',
     corpo: `
-      <label>Projetar até o mês<input type="month" name="mesFinal" value="${config.mesFinal}" placeholder="AAAA-MM"></label>
-      <label>Avisar quando o cheque passar de (%)<input type="number" name="alerta" min="1" max="100" value="${config.alertaChequePct}"></label>
-      <label>Feriados (um por linha, dd/mm/aaaa)
-        <textarea name="feriados" rows="6" placeholder="20/11/2026">${config.feriados.map(formatarData).join('\n')}</textarea>
-        <small>Usados para calcular o "último dia útil" do salário.</small></label>`,
+      <label>Meta de guardar por mês (% da renda)<input name="meta" inputmode="decimal" value="${numeroParaTexto(config.metaGuardarPct)}">
+        <small>Referência comum: no mínimo 10%, ideal 15% ou mais. Esse valor sai do seu orçamento livre.</small></label>
+      <label>CDI anual (%)<input name="cdi" inputmode="decimal" value="${numeroParaTexto(config.cdiAnual)}">
+        <small>Usado para estimar o rendimento das caixinhas "% do CDI". Atualize quando a Selic mudar.</small></label>
+      <label>Projetar o saldo por quantos meses?<input type="number" name="meses" min="1" max="24" value="${config.mesesAFrente}"></label>`,
     aoSalvar: (f) => {
-      const mesFinal = f.elements.mesFinal.value;
-      if (!/^\d{4}-\d{2}$/.test(mesFinal)) throw new Error('Mês final inválido (use AAAA-MM).');
-      if (mesFinal < ctx.dados.conta.dataSaldo.slice(0, 7)) throw new Error('O mês final precisa ser depois da data do saldo.');
-      const feriados = [];
-      for (const linha of f.elements.feriados.value.split('\n').map((l) => l.trim()).filter(Boolean)) {
-        const iso = lerDataBR(linha);
-        if (!iso) throw new Error(`Data de feriado inválida: "${linha}"`);
-        feriados.push(iso);
-      }
+      const meta = paraNumero(f.elements.meta.value);
+      const cdi = paraNumero(f.elements.cdi.value);
+      if (meta === null || meta < 0 || meta > 90) throw new Error('Meta inválida (0 a 90%).');
+      if (cdi === null || cdi < 0) throw new Error('CDI inválido.');
       ctx.alterar((d) => {
-        d.config.mesFinal = mesFinal;
-        d.config.alertaChequePct = Math.min(100, Math.max(1, parseInt(f.elements.alerta.value, 10) || 80));
-        d.config.feriados = [...new Set(feriados)].sort();
+        d.config.metaGuardarPct = meta;
+        d.config.cdiAnual = cdi;
+        d.config.mesesAFrente = Math.min(24, Math.max(1, parseInt(f.elements.meses.value, 10) || 6));
       });
-      avisar('Configurações salvas.');
+      avisar('Salvo.');
     },
   });
 }
